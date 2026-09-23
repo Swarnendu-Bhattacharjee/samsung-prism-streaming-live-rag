@@ -1,0 +1,11 @@
+{
+  "name": "samsung-prism-streaming-live-rag",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Theme 04: Streaming Live RAG - Samsung PRISM GenAI Hackathon 2026-27",
+  "scripts": {
+    "dev": "npm --prefix app/frontend run dev",
+    "build": "npm --prefix app/frontend install && npm --prefix app/frontend run build",
+    "start": "npm --prefix app/frontend run start"
+  }
+}
