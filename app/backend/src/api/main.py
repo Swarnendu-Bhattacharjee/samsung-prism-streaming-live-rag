@@ -66,11 +66,19 @@ async def startup_event():
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class QueryRequest(BaseModel):
-    question: str
+    question: Optional[str] = None
+    query: Optional[str] = None
     session_id: Optional[str] = None
     top_k: int = Field(5, ge=1, le=20)
     rerank_top_n: int = Field(3, ge=1, le=10)
     is_speculative: Optional[bool] = False
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.question and self.query:
+            self.question = self.query
+        elif not self.question and not self.query:
+            self.question = ""
+
 
 
 class SpeculativePartialRequest(BaseModel):
