@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #07090e;
-  --foreground: #f1f5f9;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 * {
@@ -14,41 +14,74 @@
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   overflow: hidden;
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom scrollbar */
+/* Samsung One UI light scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0d17;
+  background: #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #cbd5e1;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #94a3b8;
 }
 
-@keyframes pulseGlow {
-  0%, 100% {
-    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
-  }
-  50% {
-    box-shadow: 0 0 25px rgba(6, 182, 212, 0.45);
-  }
+/* Markdown styling in assistant messages */
+.samsung-markdown h1,
+.samsung-markdown h2,
+.samsung-markdown h3,
+.samsung-markdown h4 {
+  color: #0f172a;
+  font-weight: 700;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.35;
 }
 
-.glow-active {
-  animation: pulseGlow 2s infinite ease-in-out;
+.samsung-markdown h3 {
+  font-size: 1.05rem;
+  color: #0381fe;
+}
+
+.samsung-markdown p {
+  color: #334155;
+  line-height: 1.65;
+  margin-bottom: 0.6rem;
+}
+
+.samsung-markdown ul,
+.samsung-markdown ol {
+  margin-top: 0.4rem;
+  margin-bottom: 0.6rem;
+  padding-left: 1.25rem;
+  color: #334155;
+}
+
+.samsung-markdown li {
+  margin-bottom: 0.35rem;
+  line-height: 1.6;
+}
+
+.samsung-markdown strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.samsung-markdown em {
+  color: #64748b;
+  font-style: italic;
 }

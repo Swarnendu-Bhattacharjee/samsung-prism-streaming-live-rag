@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Head from 'next/head'
+import { marked } from 'marked'
 
 interface Source {
   doc_id: string
@@ -49,6 +50,12 @@ interface Scenario {
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
+// Configure marked for clean inline output
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+})
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -56,7 +63,6 @@ export default function Home() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const [activeStage, setActiveStage] = useState<string>('idle')
-  const [stageTimings, setStageTimings] = useState<Record<string, number>>({})
   const [currentSubQueries, setCurrentSubQueries] = useState<SubQuery[]>([])
   const [currentSources, setCurrentSources] = useState<Source[]>([])
   const [activeIntent, setActiveIntent] = useState<any>(null)
@@ -69,11 +75,11 @@ export default function Home() {
   const [customContent, setCustomContent] = useState('')
   const [uploadSuccess, setUploadSuccess] = useState('')
 
-  // Aggregated Telemetry
+  // Aggregated Telemetry HUD
   const [sessionTelemetry, setSessionTelemetry] = useState({
     totalTurns: 0,
     avgRecall: 1.0,
-    avgGroundedness: 0.94,
+    avgGroundedness: 0.95,
     avgTtft: 110,
     avgLatency: 280,
     totalCost: 0.0,
@@ -88,25 +94,23 @@ export default function Home() {
     const sId = `session-${Math.random().toString(36).substring(2, 9)}`
     setSessionId(sId)
 
-    // Fetch Corpus Stats
     fetch(`${BACKEND_URL}/api/corpus`)
       .then(res => res.json())
       .then(data => setCorpusStats(data))
       .catch(() => {})
 
-    // Fetch Benchmark Scenarios
     fetch(`${BACKEND_URL}/api/scenarios`)
       .then(res => res.json())
       .then(data => setScenarios(data))
       .catch(() => {})
   }, [])
 
-  // Auto-scroll
+  // Auto-scroll to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isStreaming, currentSubQueries])
 
-  // Speculative early-retrieval pre-fetch on partial typing/speech
+  // Speculative early-retrieval pre-fetch on partial typing
   const handleInputChange = (val: string) => {
     setInput(val)
     if (val.trim().length >= 20 && !isStreaming) {
@@ -117,9 +121,7 @@ export default function Home() {
       })
         .then(res => res.json())
         .then(data => {
-          if (data.prewarmed) {
-            setSpeculativeCount(data.candidate_count)
-          }
+          if (data.prewarmed) setSpeculativeCount(data.candidate_count)
         })
         .catch(() => {})
     } else {
@@ -161,7 +163,7 @@ export default function Home() {
     recognition.start()
   }
 
-  // Simulated Voice Streaming (Simulates ASR token stream at 150 wpm)
+  // Simulated Voice Streaming (Streams at human talking tempo ~150 wpm)
   const simulateVoiceStream = async (text: string) => {
     if (isStreaming) return
     setInput('')
@@ -183,10 +185,9 @@ export default function Home() {
           })
           .catch(() => {})
       }
-      await new Promise(r => setTimeout(r, 60))
+      await new Promise(r => setTimeout(r, 55))
     }
 
-    // Auto submit after simulated speech pause
     await new Promise(r => setTimeout(r, 200))
     executeStreamingQuery(accumulated)
   }
@@ -203,7 +204,6 @@ export default function Home() {
     setCurrentSubQueries([])
     setCurrentSources([])
     setActiveIntent(null)
-    setStageTimings({})
 
     const userMessage: Message = { role: 'user', content: q, timestamp: Date.now() }
     setMessages(prev => [...prev, userMessage])
@@ -265,13 +265,11 @@ export default function Home() {
               receivedIntent = data
               setActiveIntent(data)
               setActiveStage('intent')
-              setStageTimings(prev => ({ ...prev, intent: data.latency_ms || 45 }))
             } else if (eventType === 'decomposition') {
               setActiveStage('decomposition')
               const sqs = (data.sub_queries || []).map((query: string, index: number) => ({ index, query }))
               receivedSubQueries = sqs
               setCurrentSubQueries(sqs)
-              setStageTimings(prev => ({ ...prev, decomposition: data.latency_ms || 60 }))
             } else if (eventType === 'sub_query_step') {
               setActiveStage('retrieval')
               setCurrentSubQueries(prev =>
@@ -279,7 +277,6 @@ export default function Home() {
               )
             } else if (eventType === 'fusion') {
               setActiveStage('fusion')
-              setStageTimings(prev => ({ ...prev, fusion: data.latency_ms || 30 }))
             } else if (eventType === 'sharpening') {
               isSharpened = true
               sharpeningMeta = { retained: data.retained, delta: data.delta }
@@ -350,7 +347,7 @@ export default function Home() {
               }
             }
           } catch (err) {
-            console.error('SSE JSON parse error:', err)
+            console.error('SSE parse error:', err)
           }
         }
       }
@@ -360,7 +357,7 @@ export default function Home() {
         ...prev,
         {
           role: 'assistant',
-          content: `⚠️ System Error: Unable to complete stream (${err.message}). Verify backend is running at ${BACKEND_URL}.`,
+          content: `Unable to complete query stream (${err.message}). Verify backend is running on ${BACKEND_URL}.`,
           timestamp: Date.now(),
         },
       ])
@@ -370,7 +367,7 @@ export default function Home() {
     }
   }
 
-  // Handle Form Submission
+  // Handle Form Submit
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || isStreaming) return
@@ -392,7 +389,7 @@ export default function Home() {
     }).catch(() => {})
   }
 
-  // Custom Document Ingestion
+  // Ingest Document
   const handleUploadDocument = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!customTitle || !customContent) return
@@ -417,61 +414,60 @@ export default function Home() {
     <>
       <Head>
         <title>Samsung PRISM · Streaming Live RAG (Theme 04)</title>
-        <meta name="description" content="Full-duplex conversational streaming RAG with query decomposition, RRF fusion, and answer sharpening" />
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>" />
+        <meta name="description" content="Samsung Products Conversational Live Streaming RAG" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📱</text></svg>" />
       </Head>
 
-      <div className="flex h-screen bg-[#07090e] text-slate-100 font-sans antialiased overflow-hidden selection:bg-cyan-500/30 selection:text-cyan-200">
+      {/* Main Container - Clean Samsung One UI White Theme */}
+      <div className="flex h-screen bg-[#F8FAFC] text-slate-800 font-sans antialiased overflow-hidden">
         
-        {/* ── LEFT/CENTER: MAIN CHAT & PIPELINE ───────────────────────────────── */}
-        <div className="flex-1 flex flex-col h-full border-r border-slate-800/80 bg-gradient-to-b from-[#090c14] to-[#06070a]">
+        {/* ── LEFT & CENTER: CHAT & PIPELINE ─────────────────────────────────── */}
+        <div className="flex-1 flex flex-col h-full border-r border-slate-200/80 bg-white shadow-sm">
           
-          {/* Header */}
-          <header className="h-16 border-b border-slate-800/80 px-6 flex items-center justify-between backdrop-blur-md bg-[#090c14]/80 z-20">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 ring-1 ring-white/20">
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          {/* Samsung One UI Header */}
+          <header className="h-16 border-b border-slate-200/80 px-6 flex items-center justify-between bg-white z-20">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-[#0381FE] flex items-center justify-center text-white shadow-sm">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                 </svg>
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="font-bold text-base tracking-wide bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-                    Streaming Live RAG
+                  <h1 className="font-bold text-base tracking-tight text-slate-900">
+                    Samsung Streaming Live RAG
                   </h1>
-                  <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-                    Samsung PRISM · Theme 04
+                  <span className="px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-blue-50 text-[#0381FE] border border-blue-200/60">
+                    PRISM Theme 04
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 font-mono">
-                  Full-Duplex • Query Decomposition • RRF Fusion • Answer Sharpening
+                <p className="text-xs text-slate-500 font-normal">
+                  Samsung Products & Galaxy Ecosystem • Speculative Retrieval & Answer Sharpening
                 </p>
               </div>
             </div>
 
-            {/* Quick Actions & Status */}
+            {/* Header Actions */}
             <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-slate-300 font-mono text-[11px]">
-                  Corpus: {corpusStats.chunks} chunks ({corpusStats.documents} docs)
-                </span>
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-medium text-slate-600">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>{corpusStats.documents} Samsung Products ({corpusStats.chunks} Chunks)</span>
               </div>
 
               <button
                 onClick={() => setShowCorpusModal(true)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 transition-colors flex items-center gap-1.5 border border-slate-200"
               >
-                <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                <svg className="w-3.5 h-3.5 text-[#0381FE]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
-                Knowledge Base
+                Knowledge Store
               </button>
 
               <button
                 onClick={handleResetSession}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-colors"
-                title="Reset active session"
+                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                title="Reset session"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -480,105 +476,104 @@ export default function Home() {
             </div>
           </header>
 
-          {/* ── LIVE PIPELINE STEPPER ────────────────────────────────────────── */}
-          <div className="bg-[#0b0f19]/90 border-b border-slate-800/60 px-6 py-2.5 flex items-center justify-between text-[11px] font-mono overflow-x-auto gap-2">
-            <div className="flex items-center gap-1 text-slate-400 font-sans font-semibold text-xs pr-2 border-r border-slate-800">
-              <span className="text-cyan-400">⚡</span> Pipeline:
+          {/* ── CLEAN ONE UI PIPELINE STEPPER ─────────────────────────────────── */}
+          <div className="bg-[#F8FAFC] border-b border-slate-200 px-6 py-2.5 flex items-center justify-between text-xs overflow-x-auto gap-2">
+            <div className="flex items-center gap-1.5 text-slate-600 font-semibold text-xs pr-3 border-r border-slate-200">
+              <span className="text-[#0381FE]">●</span> Live Pipeline
             </div>
 
             <div className="flex items-center gap-2">
-              <span className={`px-2.5 py-1 rounded-md transition-all ${
-                activeStage === 'intent' ? 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500 font-bold animate-pulse' : 'bg-slate-900/60 text-slate-400'
+              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeStage === 'intent' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
               }`}>
                 1. Intent Router
               </span>
-              <span className="text-slate-600">→</span>
+              <span className="text-slate-300">→</span>
 
-              <span className={`px-2.5 py-1 rounded-md transition-all ${
-                activeStage === 'decomposition' ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500 font-bold animate-pulse' : 'bg-slate-900/60 text-slate-400'
+              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeStage === 'decomposition' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
               }`}>
                 2. Decomposer
               </span>
-              <span className="text-slate-600">→</span>
+              <span className="text-slate-300">→</span>
 
-              <span className={`px-2.5 py-1 rounded-md transition-all ${
-                activeStage === 'retrieval' ? 'bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500 font-bold animate-pulse' : 'bg-slate-900/60 text-slate-400'
+              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeStage === 'retrieval' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
               }`}>
                 3. Parallel Hybrid
               </span>
-              <span className="text-slate-600">→</span>
+              <span className="text-slate-300">→</span>
 
-              <span className={`px-2.5 py-1 rounded-md transition-all ${
-                activeStage === 'fusion' ? 'bg-violet-500/20 text-violet-300 ring-1 ring-violet-500 font-bold animate-pulse' : 'bg-slate-900/60 text-slate-400'
+              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeStage === 'fusion' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
               }`}>
                 4. RRF Rank Fusion
               </span>
-              <span className="text-slate-600">→</span>
+              <span className="text-slate-300">→</span>
 
-              <span className={`px-2.5 py-1 rounded-md transition-all ${
-                activeStage === 'rerank' ? 'bg-fuchsia-500/20 text-fuchsia-300 ring-1 ring-fuchsia-500 font-bold animate-pulse' : 'bg-slate-900/60 text-slate-400'
+              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeStage === 'rerank' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
               }`}>
                 5. Cross-Encoder
               </span>
-              <span className="text-slate-600">→</span>
+              <span className="text-slate-300">→</span>
 
-              <span className={`px-2.5 py-1 rounded-md transition-all ${
-                activeStage === 'sharpening' ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500 font-bold animate-pulse' : 'bg-slate-900/60 text-slate-400'
+              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeStage === 'sharpening' ? 'bg-amber-500 text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
               }`}>
                 6. Sharpening
               </span>
-              <span className="text-slate-600">→</span>
+              <span className="text-slate-300">→</span>
 
-              <span className={`px-2.5 py-1 rounded-md transition-all ${
-                activeStage === 'synthesis' ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500 font-bold animate-pulse' : 'bg-slate-900/60 text-slate-400'
+              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeStage === 'synthesis' ? 'bg-emerald-600 text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
               }`}>
-                7. Grounded Token Stream
+                7. Synthesis Stream
               </span>
             </div>
 
             {/* Speculative Pre-Warm Badge */}
             {speculativeCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 animate-pulse text-[10px]">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-[#0381FE] border border-blue-200 font-semibold text-xs animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-[#0381FE]" />
                 Speculative Cache: {speculativeCount} pre-fetched
               </div>
             )}
           </div>
 
-          {/* ── CHAT MESSAGES ────────────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-800">
+          {/* ── CHAT MESSAGES AREA ───────────────────────────────────────────── */}
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-[#F8FAFC]">
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center max-w-xl mx-auto text-center space-y-5">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-xl shadow-cyan-500/10">
+                <div className="w-16 h-16 rounded-3xl bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#0381FE] shadow-sm">
                   <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-slate-100">Live Full-Duplex RAG Assistant</h3>
-                  <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                    Designed for <strong className="text-cyan-400 font-semibold">Samsung PRISM Theme 04</strong>. Speak or type compound questions mid-conversation.
-                    The engine begins speculative retrieval before speech finishes, decomposes queries, applies RRF rank fusion, and sharpens answers when you inject follow-up details.
+                  <h3 className="text-xl font-bold text-slate-900 tracking-tight">Samsung Live Streaming Assistant</h3>
+                  <p className="text-sm text-slate-600 mt-2 leading-relaxed max-w-md mx-auto">
+                    Full-duplex conversational RAG for Samsung products. Ask multi-part questions about Galaxy phones, laptops, watches, TVs, and smart appliances in one natural utterance.
                   </p>
                 </div>
 
                 {/* Benchmark quick-buttons */}
                 <div className="w-full text-left space-y-2 pt-2">
-                  <span className="text-[11px] font-mono tracking-wider uppercase text-slate-400 block px-1">
-                    Hackathon Jury Benchmarks:
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block px-1">
+                    Preset Evaluation Scenarios:
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {scenarios.slice(0, 4).map(sc => (
                       <button
                         key={sc.id}
                         onClick={() => simulateVoiceStream(sc.prompt)}
-                        className="p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 hover:border-cyan-500/40 text-left transition-all group"
+                        className="p-3.5 rounded-2xl bg-white hover:bg-blue-50/40 border border-slate-200 hover:border-[#0381FE]/50 text-left transition-all shadow-sm group"
                       >
-                        <div className="text-xs font-bold text-slate-200 group-hover:text-cyan-300 flex items-center justify-between">
+                        <div className="text-xs font-bold text-slate-900 group-hover:text-[#0381FE] flex items-center justify-between">
                           <span>{sc.title}</span>
-                          <span className="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity">Simulate ➔</span>
+                          <span className="text-[11px] text-[#0381FE] font-medium opacity-0 group-hover:opacity-100 transition-opacity">Simulate ➔</span>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1 line-clamp-2 leading-snug">{sc.prompt}</p>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{sc.prompt}</p>
                       </button>
                     ))}
                   </div>
@@ -590,30 +585,30 @@ export default function Home() {
                   
                   {/* User Bubble */}
                   {m.role === 'user' ? (
-                    <div className="max-w-2xl bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm shadow-md text-sm leading-relaxed">
+                    <div className="max-w-2xl bg-gradient-to-r from-blue-600 to-[#0381FE] text-white px-5 py-3.5 rounded-2xl rounded-tr-sm shadow-sm text-sm leading-relaxed">
                       {m.content}
                     </div>
                   ) : (
                     /* Assistant Bubble */
-                    <div className="max-w-3xl w-full bg-[#0d121f]/90 border border-slate-800/90 rounded-2xl rounded-tl-sm p-5 shadow-xl space-y-4">
+                    <div className="max-w-3xl w-full bg-white border border-slate-200/90 rounded-2xl rounded-tl-sm p-6 shadow-sm space-y-4">
                       
-                      {/* Pipeline Metadata Badges */}
-                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      {/* Pipeline Status Badges */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
                         {m.intent && (
-                          <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono border border-slate-700">
-                            Intent: <strong className="text-cyan-300 font-semibold">{m.intent}</strong>
+                          <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-medium border border-slate-200">
+                            Intent: <strong className="text-slate-900">{m.intent}</strong>
                           </span>
                         )}
 
                         {m.speculativeHit && (
-                          <span className="px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 font-mono border border-cyan-500/40 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                            ⚡ Speculative Pre-warmed Hit (-120ms)
+                          <span className="px-2.5 py-1 rounded-full bg-blue-50 text-[#0381FE] font-medium border border-blue-200 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-[#0381FE]" />
+                            Speculative Pre-warmed Hit (-120ms)
                           </span>
                         )}
 
                         {m.isSharpened && (
-                          <span className="px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 font-mono border border-amber-500/40 flex items-center gap-1">
+                          <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 font-medium border border-amber-200 flex items-center gap-1.5">
                             ✨ Context Sharpened ({m.sharpeningStats?.retained} retained + {m.sharpeningStats?.delta} delta)
                           </span>
                         )}
@@ -621,44 +616,45 @@ export default function Home() {
 
                       {/* Decomposed Sub-Queries Pills */}
                       {m.subQueries && m.subQueries.length > 1 && (
-                        <div className="bg-[#080b12] rounded-xl p-3 border border-slate-800/80 space-y-1.5">
-                          <span className="text-[10px] font-mono text-slate-400 tracking-wider uppercase block">
+                        <div className="bg-[#F8FAFC] rounded-xl p-3.5 border border-slate-200 space-y-2">
+                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
                             Decomposed Sub-Queries ({m.subQueries.length}):
                           </span>
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-2">
                             {m.subQueries.map((sq, sIdx) => (
-                              <span key={sIdx} className="px-2 py-1 rounded-md bg-slate-900 border border-slate-800 text-cyan-300 font-mono text-[11px]">
-                                Q{sIdx + 1}: {sq.query} {sq.hits !== undefined && `(${sq.hits} hits)`}
+                              <span key={sIdx} className="px-3 py-1 rounded-lg bg-white border border-slate-200 text-[#0381FE] text-xs font-medium shadow-2xs">
+                                Sub-Query {sIdx + 1}: {sq.query} {sq.hits !== undefined && `(${sq.hits} hits)`}
                               </span>
                             ))}
                           </div>
                         </div>
                       )}
 
-                      {/* Answer Content */}
-                      <div className="prose prose-invert max-w-none text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
-                        {m.content}
-                      </div>
+                      {/* Formatted Markdown Content (No raw syntax view) */}
+                      <div
+                        className="samsung-markdown text-sm text-slate-800 leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: marked.parse(m.content) }}
+                      />
 
                       {/* Sources Cards */}
                       {m.sources && m.sources.length > 0 && (
-                        <div className="pt-2 border-t border-slate-800/80">
-                          <div className="text-[11px] font-mono text-slate-400 mb-2 flex items-center justify-between">
-                            <span>Grounded Verification Citations ({m.sources.length}):</span>
-                            <span className="text-slate-400">Click to inspect verified context</span>
+                        <div className="pt-3 border-t border-slate-100">
+                          <div className="text-xs font-semibold text-slate-500 mb-2 flex items-center justify-between">
+                            <span>Grounded Product Citations ({m.sources.length}):</span>
+                            <span className="text-slate-400 font-normal">Click to view verified source text</span>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                             {m.sources.map((src, sIdx) => (
                               <button
                                 key={sIdx}
                                 onClick={() => setSelectedSource(src)}
-                                className="p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-left transition-all"
+                                className="p-3 rounded-xl bg-slate-50 hover:bg-blue-50/50 border border-slate-200 hover:border-[#0381FE]/40 text-left transition-all group"
                               >
-                                <div className="text-[11px] font-semibold text-cyan-300 truncate">
-                                  Source {sIdx + 1}: {src.source}
+                                <div className="text-xs font-semibold text-slate-900 group-hover:text-[#0381FE] truncate">
+                                  {src.source}
                                 </div>
-                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                  Rerank Score: <span className="text-emerald-400">{src.score.toFixed(3)}</span>
+                                <div className="text-[11px] text-slate-500 mt-1">
+                                  Relevance Score: <strong className="text-emerald-600 font-semibold">{src.score.toFixed(3)}</strong>
                                 </div>
                               </button>
                             ))}
@@ -666,25 +662,25 @@ export default function Home() {
                         </div>
                       )}
 
-                      {/* Real-time Telemetry Footer */}
+                      {/* Telemetry Footer */}
                       {m.telemetry && (
-                        <div className="pt-2 flex flex-wrap items-center justify-between text-[11px] font-mono text-slate-400 border-t border-slate-800/60">
-                          <div className="flex items-center gap-3">
+                        <div className="pt-3 flex flex-wrap items-center justify-between text-xs text-slate-500 border-t border-slate-100">
+                          <div className="flex items-center gap-4">
                             <span>
-                              TTFT: <strong className="text-emerald-400">{m.telemetry.ttft_ms}ms</strong>
+                              TTFT: <strong className="text-emerald-600 font-semibold">{m.telemetry.ttft_ms} ms</strong>
                             </span>
                             <span>
-                              Recall: <strong className="text-cyan-400">{(m.telemetry.recall * 100).toFixed(0)}%</strong>
+                              Recall: <strong className="text-[#0381FE] font-semibold">{(m.telemetry.recall * 100).toFixed(0)}%</strong>
                             </span>
                             <span>
-                              Groundedness: <strong className="text-violet-400">{(m.telemetry.groundedness * 100).toFixed(0)}%</strong>
+                              Faithfulness: <strong className="text-indigo-600 font-semibold">{(m.telemetry.groundedness * 100).toFixed(0)}%</strong>
                             </span>
                             <span>
-                              Latency: <strong className="text-slate-300">{m.telemetry.latency_ms}ms</strong>
+                              Latency: <strong className="text-slate-700 font-semibold">{m.telemetry.latency_ms} ms</strong>
                             </span>
                           </div>
                           <div>
-                            Cost: <strong className="text-slate-400">${m.telemetry.cost_usd.toFixed(6)}</strong>
+                            Cost: <strong className="text-slate-600 font-semibold">${m.telemetry.cost_usd.toFixed(6)}</strong>
                           </div>
                         </div>
                       )}
@@ -698,9 +694,9 @@ export default function Home() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* ── BOTTOM INPUT BAR ────────────────────────────────────────────── */}
-          <div className="p-4 bg-[#090c14] border-t border-slate-800/80 backdrop-blur-md">
-            <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex items-end gap-2">
+          {/* ── BOTTOM INPUT BAR (One UI Squircles & Decent White) ─────────────── */}
+          <div className="p-4 bg-white border-t border-slate-200">
+            <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex items-end gap-2.5">
               <div className="relative flex-1">
                 <textarea
                   ref={inputRef}
@@ -717,21 +713,21 @@ export default function Home() {
                   placeholder={
                     isListening
                       ? 'Listening to speech in real time...'
-                      : 'Ask a complex question or add supplementary details mid-flow...'
+                      : 'Ask a complex question about Samsung products or add follow-up details mid-flow...'
                   }
-                  className="w-full bg-[#0d121f] border border-slate-800 focus:border-cyan-500 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none font-sans"
+                  className="w-full bg-[#F8FAFC] border border-slate-200 focus:border-[#0381FE] focus:bg-white rounded-2xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0381FE]/20 resize-none font-sans transition-all"
                 />
 
                 {/* Voice Input Button */}
                 <button
                   type="button"
                   onClick={toggleVoiceInput}
-                  className={`absolute right-3 bottom-3 p-1.5 rounded-lg transition-colors ${
+                  className={`absolute right-3.5 bottom-3.5 p-2 rounded-xl transition-colors ${
                     isListening
                       ? 'bg-rose-500 text-white animate-pulse'
-                      : 'text-slate-400 hover:text-cyan-400 hover:bg-slate-800'
+                      : 'text-slate-400 hover:text-[#0381FE] hover:bg-slate-200/60'
                   }`}
-                  title={isListening ? 'Stop recording' : 'Speak full-duplex voice input'}
+                  title={isListening ? 'Stop recording' : 'Speak voice input'}
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -743,7 +739,7 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={!input.trim() || isStreaming}
-                className="px-5 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center"
+                className="px-5 py-3.5 rounded-2xl bg-[#0381FE] hover:bg-blue-600 text-white font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all flex items-center justify-center flex-shrink-0"
               >
                 {isStreaming ? (
                   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -761,88 +757,88 @@ export default function Home() {
 
         </div>
 
-        {/* ── RIGHT PANEL: JURY BENCHMARKS & TELEMETRY HUD ────────────────────── */}
-        <div className="w-80 lg:w-96 flex flex-col h-full bg-[#0a0d17] p-5 space-y-6 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
+        {/* ── RIGHT PANEL: SAMSUNG JURY BENCHMARKS & TELEMETRY HUD ────────────── */}
+        <div className="w-80 lg:w-96 flex flex-col h-full bg-[#F8FAFC] border-l border-slate-200/80 p-5 space-y-5 overflow-y-auto">
           
-          {/* Telemetry Scorecard Card */}
-          <div className="bg-[#0e1424] rounded-2xl p-4 border border-slate-800 shadow-xl space-y-4">
+          {/* Telemetry Scorecard */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold font-mono tracking-wider uppercase text-slate-300">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
                 Evaluation Telemetry HUD
               </h2>
-              <span className="text-[10px] text-emerald-400 font-mono bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                Real-Time
+              <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                Live Active
               </span>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-center">
-              <div className="bg-[#080b14] p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">AVG TTFT</span>
-                <span className="text-lg font-bold font-mono text-emerald-400">
+              <div className="bg-blue-50/70 p-3.5 rounded-2xl border border-blue-100">
+                <span className="text-[11px] text-slate-500 block font-medium">AVG TTFT</span>
+                <span className="text-xl font-bold text-[#0381FE]">
                   {sessionTelemetry.avgTtft} <span className="text-xs font-normal">ms</span>
                 </span>
-                <span className="text-[9px] text-slate-400 block mt-0.5">Target: &lt;150ms</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Target: &lt;150ms</span>
               </div>
 
-              <div className="bg-[#080b14] p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">RECALL</span>
-                <span className="text-lg font-bold font-mono text-cyan-400">
+              <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-100">
+                <span className="text-[11px] text-slate-500 block font-medium">RECALL</span>
+                <span className="text-xl font-bold text-emerald-600">
                   {(sessionTelemetry.avgRecall * 100).toFixed(0)}%
                 </span>
-                <span className="text-[9px] text-slate-400 block mt-0.5">Multi-query hits</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Multi-query hits</span>
               </div>
 
-              <div className="bg-[#080b14] p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">FAITHFULNESS</span>
-                <span className="text-lg font-bold font-mono text-violet-400">
+              <div className="bg-indigo-50/70 p-3.5 rounded-2xl border border-indigo-100">
+                <span className="text-[11px] text-slate-500 block font-medium">FAITHFULNESS</span>
+                <span className="text-xl font-bold text-indigo-600">
                   {(sessionTelemetry.avgGroundedness * 100).toFixed(0)}%
                 </span>
-                <span className="text-[9px] text-slate-400 block mt-0.5">Citation grounded</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Citation Grounded</span>
               </div>
 
-              <div className="bg-[#080b14] p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-mono">TOTAL TURNS</span>
-                <span className="text-lg font-bold font-mono text-slate-200">
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                <span className="text-[11px] text-slate-500 block font-medium">TOTAL TURNS</span>
+                <span className="text-xl font-bold text-slate-800">
                   {sessionTelemetry.totalTurns}
                 </span>
-                <span className="text-[9px] text-slate-400 block mt-0.5">Session active</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Active Session</span>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-800 text-[11px] font-mono text-slate-400 flex justify-between">
-              <span>Estimated Turn Cost:</span>
-              <span className="text-slate-300 font-semibold">${sessionTelemetry.totalCost.toFixed(6)}</span>
+            <div className="pt-2 border-t border-slate-100 text-xs text-slate-500 flex justify-between">
+              <span>Estimated Cost:</span>
+              <span className="text-slate-800 font-semibold">${sessionTelemetry.totalCost.toFixed(6)}</span>
             </div>
           </div>
 
-          {/* Hackathon Benchmark Scenarios */}
+          {/* Preset Benchmark Scenarios (100% Samsung Products) */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold font-mono tracking-wider uppercase text-slate-300">
-                Jury Evaluation Scenarios
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                Samsung Product Scenarios
               </h2>
-              <span className="text-[10px] text-slate-400">Click to run</span>
+              <span className="text-xs text-slate-400 font-normal">Click to run</span>
             </div>
 
             <div className="space-y-2.5">
-              {scenarios.map((sc, i) => (
+              {scenarios.map(sc => (
                 <div
                   key={sc.id}
                   onClick={() => simulateVoiceStream(sc.prompt)}
-                  className="p-3.5 rounded-xl bg-[#0e1424] hover:bg-slate-800/90 border border-slate-800 hover:border-cyan-500/50 cursor-pointer transition-all group"
+                  className="p-4 rounded-2xl bg-white hover:bg-blue-50/50 border border-slate-200 hover:border-[#0381FE]/50 cursor-pointer transition-all shadow-sm group"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-200 group-hover:text-cyan-300">
+                    <span className="text-xs font-bold text-slate-900 group-hover:text-[#0381FE]">
                       {sc.title}
                     </span>
-                    <span className="text-[9px] font-mono text-cyan-400 px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30">
+                    <span className="text-[10px] font-semibold text-[#0381FE] px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200">
                       Run ➔
                     </span>
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono mt-1 block">
+                  <span className="text-[11px] text-[#0381FE] font-medium mt-1 block">
                     {sc.category}
                   </span>
-                  <p className="text-[11px] text-slate-300 mt-2 leading-relaxed">
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
                     {sc.prompt}
                   </p>
                 </div>
@@ -856,27 +852,27 @@ export default function Home() {
 
       {/* ── MODAL: SOURCE DOCUMENT INSPECTOR ─────────────────────────────────── */}
       {selectedSource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-[#0e1424] border border-slate-700 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="text-sm font-bold text-cyan-300">{selectedSource.source}</h3>
-                <span className="text-[11px] font-mono text-slate-400">Doc ID: {selectedSource.doc_id} • Score: {selectedSource.score.toFixed(4)}</span>
+                <h3 className="text-sm font-bold text-slate-900">{selectedSource.source}</h3>
+                <span className="text-xs text-slate-500">Doc ID: {selectedSource.doc_id} • Score: {selectedSource.score.toFixed(4)}</span>
               </div>
               <button
                 onClick={() => setSelectedSource(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100"
               >
                 ✕
               </button>
             </div>
-            <div className="max-h-80 overflow-y-auto text-xs text-slate-300 leading-relaxed font-mono bg-[#080b12] p-4 rounded-xl border border-slate-800 whitespace-pre-wrap">
+            <div className="max-h-80 overflow-y-auto text-xs text-slate-700 leading-relaxed bg-[#F8FAFC] p-4 rounded-2xl border border-slate-200 whitespace-pre-wrap">
               {selectedSource.text}
             </div>
             <div className="flex justify-end">
               <button
                 onClick={() => setSelectedSource(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition-colors"
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 transition-colors"
               >
                 Close Inspector
               </button>
@@ -885,60 +881,60 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── MODAL: KNOWLEDGE BASE & UPLOAD ──────────────────────────────────── */}
+      {/* ── MODAL: SAMSUNG KNOWLEDGE STORE ───────────────────────────────────── */}
       {showCorpusModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-[#0e1424] border border-slate-700 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="text-base font-bold text-white">Samsung Knowledge Store & Ingestion</h3>
-                <span className="text-xs text-slate-400">Live corpus chunks available for full-duplex hybrid retrieval</span>
+                <h3 className="text-base font-bold text-slate-900">Samsung Products Knowledge Store</h3>
+                <span className="text-xs text-slate-500">Live indexed products available for full-duplex hybrid retrieval</span>
               </div>
               <button
                 onClick={() => setShowCorpusModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100"
               >
                 ✕
               </button>
             </div>
 
-            {/* Loaded Documents List */}
+            {/* Indexed Products List */}
             <div className="space-y-2">
-              <span className="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider">
-                Indexed Sources ({corpusStats.documents}):
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Indexed Samsung Products ({corpusStats.documents}):
               </span>
-              <div className="max-h-40 overflow-y-auto space-y-1 pr-1 font-mono text-xs">
+              <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1 text-xs">
                 {(corpusStats.sources || []).map((src: string, i: number) => (
-                  <div key={i} className="p-2 rounded-lg bg-[#080b12] border border-slate-800 flex items-center justify-between text-slate-300">
-                    <span className="truncate">{src}</span>
-                    <span className="text-cyan-400 text-[10px]">Indexed ✓</span>
+                  <div key={i} className="p-2.5 rounded-xl bg-[#F8FAFC] border border-slate-200 flex items-center justify-between text-slate-800">
+                    <span className="font-medium truncate">{src}</span>
+                    <span className="text-[#0381FE] text-[11px] font-semibold">Indexed ✓</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Custom Ingestion Form */}
-            <form onSubmit={handleUploadDocument} className="space-y-3 pt-3 border-t border-slate-800">
-              <span className="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider block">
-                Ingest Custom Document / Manual:
+            {/* Ingestion Form */}
+            <form onSubmit={handleUploadDocument} className="space-y-3 pt-3 border-t border-slate-100">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+                Ingest Additional Samsung Product Manual or Specs:
               </span>
               <input
                 type="text"
-                placeholder="Document Title (e.g., Galaxy Book4 Ultra Manual)"
+                placeholder="Product Title (e.g., Samsung Galaxy Ring Specifications)"
                 value={customTitle}
                 onChange={e => setCustomTitle(e.target.value)}
-                className="w-full bg-[#080b12] border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#0381FE]"
               />
               <textarea
                 rows={3}
-                placeholder="Paste document text, policy, or technical specifications..."
+                placeholder="Paste product specifications, user guide, or feature description..."
                 value={customContent}
                 onChange={e => setCustomContent(e.target.value)}
-                className="w-full bg-[#080b12] border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
+                className="w-full bg-[#F8FAFC] border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#0381FE]"
               />
 
               {uploadSuccess && (
-                <div className="text-xs text-emerald-400 font-mono bg-emerald-950/60 p-2 rounded-lg border border-emerald-500/30">
+                <div className="text-xs text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 font-medium">
                   {uploadSuccess}
                 </div>
               )}
@@ -951,16 +947,16 @@ export default function Home() {
                       .then(res => res.json())
                       .then(data => setCorpusStats(data.stats))
                   }}
-                  className="text-xs text-slate-400 hover:text-rose-400 font-mono"
+                  className="text-xs text-slate-500 hover:text-rose-600"
                 >
-                  Reset to Default Knowledge Base
+                  Reset Default Products
                 </button>
                 <button
                   type="submit"
                   disabled={!customTitle || !customContent}
-                  className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs disabled:opacity-50 transition-colors"
+                  className="px-4 py-2 rounded-xl bg-[#0381FE] hover:bg-blue-600 text-white font-semibold text-xs disabled:opacity-50 transition-colors"
                 >
-                  Chunk & Index Document
+                  Index Product Specs
                 </button>
               </div>
             </form>
