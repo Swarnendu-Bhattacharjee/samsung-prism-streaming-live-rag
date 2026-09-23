@@ -1,0 +1,18 @@
+# Streaming Live RAG — Samsung Prism Hackathon
+# Theme 04: Full-duplex conversational RAG with query decomposition
+
+[project]
+name = "streaming-live-rag"
+version = "0.1.0"
+description = "Full-duplex streaming RAG: intent understanding, query decomposition, multi-query retrieval, rank fusion, reranking"
+license = "MIT"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project.optional-dependencies]
+dev = ["ruff", "mypy", "pytest", "pytest-asyncio"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

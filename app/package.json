@@ -1,0 +1,18 @@
+{
+  "name": "streaming-live-rag",
+  "version": "1.0.0",
+  "description": "Streaming Live RAG — Samsung Prism Hackathon Theme 04. Full-duplex streaming RAG with query decomposition, hybrid retrieval, rank fusion, and cross-encoder reranking.",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names \"BACKEND,FRONTEND\" --prefix-colors \"bgBlue.bold,bgGreen.bold\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && ./start.sh",
+    "dev:frontend": "cd frontend && npm run dev",
+    "backend": "cd backend && ./start.sh",
+    "frontend": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start": "npm run dev"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

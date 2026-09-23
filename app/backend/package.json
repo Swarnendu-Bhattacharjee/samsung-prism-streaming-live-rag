@@ -1,0 +1,10 @@
+{
+  "name": "streaming-live-rag-backend",
+  "version": "1.0.0",
+  "description": "Streaming Live RAG backend — FastAPI + SSE streaming",
+  "private": true,
+  "scripts": {
+    "dev": "bash start.sh",
+    "start": "bash start.sh"
+  }
+}
