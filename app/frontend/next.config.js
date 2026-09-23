@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
-const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+let rawBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+if (!rawBackendUrl.startsWith('http://') && !rawBackendUrl.startsWith('https://') && !rawBackendUrl.startsWith('/')) {
+  rawBackendUrl = 'http://localhost:8000';
+}
+const backendUrl = rawBackendUrl.replace(/\/+$/, '');
 
 const nextConfig = {
   reactStrictMode: true,

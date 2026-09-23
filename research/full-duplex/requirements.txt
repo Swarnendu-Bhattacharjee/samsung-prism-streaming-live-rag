@@ -1,0 +1,11 @@
+# Full-Duplex Dependencies
+
+# Gemini backend (required for GeminiStream)
+google-genai>=1.0.0
+
+# Audio I/O (optional, for examples)
+# sounddevice>=0.4.6
+# numpy>=1.24.0
+
+# Push-to-talk input (optional, for examples)
+# keyboard>=0.13.5

@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Audio/Video files (test artifacts)
+*.wav
+*.mp3
+*.mp4
+*.webm
+
+# Secrets - NEVER commit
+.env
+.env.local
+.env.*
+secrets.py
+credentials.py
+*_credentials*
+*_secrets*
+*.key
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.temp
+*.log
