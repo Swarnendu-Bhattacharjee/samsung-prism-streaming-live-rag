@@ -1,5 +1,5 @@
 """
-LLM client supporting Google Gemini, OpenAI, Anthropic, Mistral, Ollama,
+LLM client supporting Groq LPU, Google Gemini, OpenAI, Anthropic, Ollama,
 and high-quality local offline extractive synthesis.
 """
 
@@ -18,11 +18,12 @@ def _detect_provider(model: str) -> str:
     if settings.llm_provider and settings.llm_provider != "auto":
         return settings.llm_provider.lower()
 
+    if settings.groq_api_key or os.environ.get("GROQ_API_KEY"):
+        return "groq"
+
     name = model.lower()
     if "gemini" in name:
         return "gemini"
-    if "mistral" in name or "mixtral" in name:
-        return "mistral"
     if "claude" in name:
         return "anthropic"
     if any(t in name for t in ("llama", "qwen", "deepseek", "phi", "gemma", "ollama")):
@@ -41,14 +42,14 @@ async def llm_chat(
     """Chat completion returning complete response text."""
     provider = _detect_provider(model)
 
-    if provider == "gemini":
+    if provider == "groq":
+        return await _groq_chat(model, messages, temperature, max_tokens)
+    elif provider == "gemini":
         return await _gemini_chat(model, messages, temperature, max_tokens)
     elif provider == "openai":
         return await _openai_chat(model, messages, temperature, max_tokens)
     elif provider == "anthropic":
         return await _anthropic_chat(model, messages, temperature, max_tokens)
-    elif provider == "mistral":
-        return await _mistral_chat(model, messages, temperature, max_tokens)
     elif provider == "ollama":
         return await _ollama_chat(model, messages, temperature, max_tokens)
     else:
@@ -66,7 +67,10 @@ async def llm_stream(
     """Stream chat completions token-by-token."""
     provider = _detect_provider(model)
 
-    if provider == "gemini":
+    if provider == "groq":
+        async for token in _groq_stream(model, messages, temperature, max_tokens):
+            yield token
+    elif provider == "gemini":
         async for token in _gemini_stream(model, messages, temperature, max_tokens):
             yield token
     elif provider == "openai":
@@ -75,13 +79,63 @@ async def llm_stream(
     elif provider == "anthropic":
         async for token in _anthropic_stream(model, messages, temperature, max_tokens):
             yield token
-    elif provider == "mistral":
-        async for token in _mistral_stream(model, messages, temperature, max_tokens):
-            yield token
     elif provider == "ollama":
         async for token in _ollama_stream(model, messages, temperature, max_tokens):
             yield token
     else:
+        async for token in _offline_stream(messages):
+            yield token
+
+
+# ── Groq Provider (Ultra-Fast LPU) ────────────────────────────────────────────
+
+def _get_groq_key() -> str:
+    return settings.groq_api_key or os.environ.get("GROQ_API_KEY", "")
+
+async def _groq_chat(model: str, messages: List[dict], temperature: float, max_tokens: int) -> str:
+    api_key = _get_groq_key()
+    if not api_key:
+        return _offline_chat(messages)
+    try:
+        from groq import AsyncGroq
+        client = AsyncGroq(api_key=api_key)
+        # Use valid Groq model
+        groq_model = model if ("gpt-oss" in model or "qwen" in model) else "openai/gpt-oss-20b"
+        response = await client.chat.completions.create(
+            model=groq_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content or ""
+    except Exception as e:
+        print(f"[Groq Chat Error]: {e}, falling back to offline generator")
+        return _offline_chat(messages)
+
+
+async def _groq_stream(model: str, messages: List[dict], temperature: float, max_tokens: int) -> AsyncGenerator[str, None]:
+    api_key = _get_groq_key()
+    if not api_key:
+        async for token in _offline_stream(messages):
+            yield token
+        return
+    try:
+        from groq import AsyncGroq
+        client = AsyncGroq(api_key=api_key)
+        groq_model = model if ("gpt-oss" in model or "qwen" in model) else "openai/gpt-oss-120b"
+        stream = await client.chat.completions.create(
+            model=groq_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+    except Exception as e:
+        print(f"[Groq Stream Error]: {e}, falling back to offline stream")
         async for token in _offline_stream(messages):
             yield token
 
@@ -254,16 +308,6 @@ async def _anthropic_stream(model: str, messages: List[dict], temperature: float
             yield token
 
 
-# ── Mistral Provider ──────────────────────────────────────────────────────────
-
-async def _mistral_chat(model: str, messages: List[dict], temperature: float, max_tokens: int) -> str:
-    return _offline_chat(messages)
-
-async def _mistral_stream(model: str, messages: List[dict], temperature: float, max_tokens: int) -> AsyncGenerator[str, None]:
-    async for token in _offline_stream(messages):
-        yield token
-
-
 # ── Ollama Provider (Local Server) ────────────────────────────────────────────
 
 async def _ollama_chat(model: str, messages: List[dict], temperature: float, max_tokens: int) -> str:
@@ -308,7 +352,6 @@ async def _ollama_stream(model: str, messages: List[dict], temperature: float, m
 # ── High-Quality Offline Grounded Synthesizer ───────────────────────────────────
 
 def _extract_question_and_context(messages: List[dict]) -> tuple[str, str]:
-    """Parse question and context from message chain."""
     question = ""
     context = ""
     for m in messages:
@@ -323,13 +366,11 @@ def _extract_question_and_context(messages: List[dict]) -> tuple[str, str]:
 
 
 def _offline_chat(messages: List[dict]) -> str:
-    """Generate high-quality grounded answer directly from context."""
     question, context = _extract_question_and_context(messages)
 
     if not context or "(no relevant context found)" in context:
-        return f"Based on the system knowledge base, I could not find specific documentation addressing: \"{question}\". Please clarify your request or upload relevant documentation."
+        return f"Based on Samsung product documentation, I could not locate details addressing: \"{question}\"."
 
-    # Parse sources
     sources = []
     current_source = "Source"
     current_text = []
@@ -346,13 +387,11 @@ def _offline_chat(messages: List[dict]) -> str:
     if current_text:
         sources.append((current_source, " ".join(current_text)))
 
-    # Synthesize grounded answer
     response_lines = [
         f"### Grounded Response for: *\"{question}\"*\n",
     ]
 
     for src_name, src_content in sources[:3]:
-        # Split into sentences
         sentences = [s.strip() for s in re.split(r'(?<=[.?!])\s+', src_content) if len(s.strip()) > 20]
         summary_sentences = sentences[:3]
         if summary_sentences:
@@ -361,22 +400,15 @@ def _offline_chat(messages: List[dict]) -> str:
                 response_lines.append(f"• {sent}")
             response_lines.append("")
 
-    response_lines.append(
-        "💡 *Retrieved context has been verified through Reciprocal Rank Fusion (RRF) and Cross-Encoder reranking.*"
-    )
-
     return "\n".join(response_lines)
 
 
 async def _offline_stream(messages: List[dict]) -> AsyncGenerator[str, None]:
-    """Stream grounded answer word by word with simulated human/LLM typing speed."""
     full_text = _offline_chat(messages)
     words = re.findall(r'\S+|\n', full_text)
-
     for word in words:
         if word == '\n':
             yield '\n'
         else:
             yield word + ' '
-        # Smooth streaming token interval
-        await asyncio.sleep(0.015)
+        await asyncio.sleep(0.01)

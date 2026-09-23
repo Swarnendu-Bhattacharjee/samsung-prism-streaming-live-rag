@@ -1,5 +1,6 @@
 """
 Core configuration for Streaming Live RAG (Samsung PRISM Theme 04).
+Powered by Groq LPU for high-speed full-duplex inference.
 """
 
 from pydantic_settings import BaseSettings
@@ -8,11 +9,12 @@ import os
 
 
 class Settings(BaseSettings):
-    # LLM Provider: "gemini", "openai", "anthropic", "mistral", "ollama", or "local"
-    llm_provider: str = "gemini"
-    # Model names
-    llm_model: str = "gemini-2.5-flash"
-    llm_inference_model: str = "gemini-2.5-flash"
+    # LLM Provider: "groq", "gemini", "openai", "anthropic", "ollama", or "local"
+    llm_provider: str = "groq"
+
+    # Groq Models (Frontier 120B for synthesis, fast 20B for decomposition)
+    llm_model: str = "openai/gpt-oss-120b"
+    llm_inference_model: str = "openai/gpt-oss-20b"
 
     # Embedding model (CPU/GPU lightweight)
     embedding_model: str = "all-MiniLM-L6-v2"
@@ -38,10 +40,10 @@ class Settings(BaseSettings):
     context_retention_boost: float = 0.25
 
     # API Keys
+    groq_api_key: str = os.environ.get("GROQ_API_KEY", "your_groq_api_key_here")
     gemini_api_key: Optional[str] = os.environ.get("GEMINI_API_KEY", "")
     openai_api_key: Optional[str] = os.environ.get("OPENAI_API_KEY", "")
     anthropic_api_key: Optional[str] = os.environ.get("ANTHROPIC_API_KEY", "")
-    mistral_api_key: Optional[str] = os.environ.get("MISTRAL_API_KEY", "")
 
     # Server settings
     host: str = "0.0.0.0"

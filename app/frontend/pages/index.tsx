@@ -440,6 +440,10 @@ export default function Home() {
                   <span className="px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-blue-50 text-[#0381FE] border border-blue-200/60">
                     PRISM Theme 04
                   </span>
+                  <span className="px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-amber-50 text-amber-700 border border-amber-200/60 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    Groq LPU™ Ultra Fast
+                  </span>
                 </div>
                 <p className="text-xs text-slate-500 font-normal">
                   Samsung Products & Galaxy Ecosystem • Speculative Retrieval & Answer Sharpening
