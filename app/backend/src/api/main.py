@@ -31,6 +31,17 @@ from src.ingestion.corpus import (
 from src.memory.session_store import SessionStore
 from src.core.synthesizer import synthesize_stream
 from src.core.metrics import metrics_tracker
+from src.api.diagnostics import (
+    STAGE_SPECS,
+    trace_manager,
+    inspect_intent_stage,
+    inspect_decomposer_stage,
+    inspect_hybrid_stage,
+    inspect_rrf_stage,
+    inspect_cross_encoder_stage,
+    inspect_sharpening_stage,
+    inspect_synthesis_stage,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,6 +101,15 @@ class UploadTextRequest(BaseModel):
     title: str
     content: str
     session_id: Optional[str] = None
+
+
+class InspectStageRequest(BaseModel):
+    query: Optional[str] = None
+    question: Optional[str] = None
+    top_k: Optional[int] = 5
+    top_n: Optional[int] = 3
+    session_id: Optional[str] = "demo-session"
+
 
 
 # ── Health & Diagnostics ─────────────────────────────────────────────────────
@@ -170,6 +190,7 @@ async def query_stream(request: Request, body: bytes = None):
     session_id = req.session_id or f"session-{uuid.uuid4().hex[:8]}"
 
     start_time = time.time()
+    trace_manager.start_trace(req.question, session_id)
     has_prior_context = len(sharpening_engine.get_context(session_id)) > 0
 
     async def event_generator():
@@ -184,7 +205,9 @@ async def query_stream(request: Request, body: bytes = None):
         intent_info = await classify_intent(req.question, has_prior_context=has_prior_context)
         intent_type = intent_info.get("intent", "single_factual")
         needs_retrieval = intent_info.get("needs_retrieval", True)
-        yield f"event: intent\ndata: {json.dumps({**intent_info, 'latency_ms': round((time.time() - t0)*1000, 1)})}\n\n"
+        intent_lat = round((time.time() - t0)*1000, 1)
+        trace_manager.update_stage("intent", {**intent_info, "latency_ms": intent_lat, "input": req.question})
+        yield f"event: intent\ndata: {json.dumps({**intent_info, 'latency_ms': intent_lat})}\n\n"
         await asyncio.sleep(0.02)
 
         # Handle non-retrieval queries (Greetings / Chitchat)
@@ -200,13 +223,16 @@ async def query_stream(request: Request, body: bytes = None):
             sessions.add_message(session_id, "assistant", chitchat_answer)
 
             # Record telemetry
-            metrics_tracker.record_turn({
+            t_data = {
                 "recall": 1.0,
                 "groundedness": 1.0,
                 "ttft_ms": ttft_ms,
                 "latency_ms": round((time.time() - start_time) * 1000, 1),
                 "cost_usd": 0.0,
-            })
+            }
+            metrics_tracker.record_turn(t_data)
+            trace_manager.update_stage("synthesis", {"full_answer": chitchat_answer, "ttft_ms": ttft_ms})
+            trace_manager.update_stage("pipeline", {"status": "completed", "telemetry": t_data})
             yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'answer': chitchat_answer})}\n\n"
             return
 
@@ -230,6 +256,12 @@ async def query_stream(request: Request, body: bytes = None):
             sub_queries = [req.question]
             all_retrieved = reranked
 
+            trace_manager.update_stage("sharpening", {
+                "is_sharpened": True,
+                "retained": sharpening_meta["retained"],
+                "delta": sharpening_meta["delta"],
+                "sub_queries": sub_queries,
+            })
             yield f"event: sharpening\ndata: {json.dumps({'is_sharpened': True, 'retained': sharpening_meta['retained'], 'delta': sharpening_meta['delta']})}\n\n"
             await asyncio.sleep(0.02)
         else:
@@ -240,7 +272,13 @@ async def query_stream(request: Request, body: bytes = None):
             else:
                 sub_queries = [req.question]
 
-            yield f"event: decomposition\ndata: {json.dumps({'sub_queries': sub_queries, 'count': len(sub_queries), 'latency_ms': round((time.time() - t1)*1000, 1)})}\n\n"
+            decomp_lat = round((time.time() - t1)*1000, 1)
+            trace_manager.update_stage("decomposer", {
+                "sub_queries": sub_queries,
+                "count": len(sub_queries),
+                "latency_ms": decomp_lat,
+            })
+            yield f"event: decomposition\ndata: {json.dumps({'sub_queries': sub_queries, 'count': len(sub_queries), 'latency_ms': decomp_lat})}\n\n"
             await asyncio.sleep(0.02)
 
             # Step 3: Multi-Query Parallel Hybrid Retrieval
@@ -256,14 +294,37 @@ async def query_stream(request: Request, body: bytes = None):
                 yield f"event: sub_query_step\ndata: {json.dumps({'index': i, 'query': sq, 'hits': len(sq_results)})}\n\n"
                 await asyncio.sleep(0.01)
 
+            hybrid_lat = round((time.time() - t2)*1000, 1)
+            trace_manager.update_stage("hybrid", {
+                "sub_queries_results": [
+                    {"query": sq, "count": len(res), "top_hits": [r.to_dict() for r in res[:3]]}
+                    for sq, res in zip(sub_queries, results_by_subquery)
+                ],
+                "total_candidates": len(all_retrieved),
+                "latency_ms": hybrid_lat,
+            })
+
             # Step 4: Reciprocal Rank Fusion (RRF)
+            t_fuse = time.time()
             fused = RRFusion.fuse(results_by_subquery, k=settings.rrf_k)
-            yield f"event: fusion\ndata: {json.dumps({'total_fused': len(fused), 'method': f'RRF (k={settings.rrf_k})', 'latency_ms': round((time.time() - t2)*1000, 1)})}\n\n"
+            fusion_lat = round((time.time() - t_fuse)*1000, 1)
+            trace_manager.update_stage("rrf", {
+                "total_fused": len(fused),
+                "method": f"RRF (k={settings.rrf_k})",
+                "top_candidates": [r.to_dict() for r in fused[:5]],
+                "latency_ms": fusion_lat,
+            })
+            yield f"event: fusion\ndata: {json.dumps({'total_fused': len(fused), 'method': f'RRF (k={settings.rrf_k})', 'latency_ms': fusion_lat})}\n\n"
             await asyncio.sleep(0.02)
 
             # Step 5: Cross-Encoder Reranking
             t3 = time.time()
             reranked = rerank_results(req.question, fused, top_n=req.rerank_top_n)
+            rerank_lat = round((time.time() - t3)*1000, 1)
+            trace_manager.update_stage("cross_encoder", {
+                "reranked": [r.to_dict() for r in reranked],
+                "latency_ms": rerank_lat,
+            })
             # Update sharpening context for subsequent turns
             sharpening_engine.update_context(session_id, reranked)
 
@@ -317,6 +378,19 @@ async def query_stream(request: Request, body: bytes = None):
         }
         metrics_tracker.record_turn(telemetry_data)
 
+        trace_manager.update_stage("synthesis", {
+            "token_count": token_count,
+            "ttft_ms": ttft_ms,
+            "latency_ms": total_latency_ms,
+            "full_answer": full_answer,
+        })
+        trace_manager.update_stage("pipeline", {
+            "status": "completed",
+            "total_latency_ms": total_latency_ms,
+            "ttft_ms": ttft_ms,
+            "telemetry": telemetry_data,
+        })
+
         yield f"event: telemetry\ndata: {json.dumps(telemetry_data)}\n\n"
 
         # Update Session History
@@ -344,6 +418,53 @@ async def get_telemetry():
         "summary": metrics_tracker.get_summary(),
         "recent_turns": metrics_tracker.turn_history[-10:],
     }
+
+
+# ── Pipeline Stage Inspection & Diagnostics ─────────────────────────────────
+
+@app.get("/api/pipeline/info")
+async def get_pipeline_info():
+    """Return complete architectural specifications, mathematical formulations, and prompt templates for all stages."""
+    return {"stages": STAGE_SPECS}
+
+
+@app.get("/api/pipeline/trace")
+async def get_pipeline_trace():
+    """Return the real-time execution trace and intermediate stage data of the latest run."""
+    return trace_manager.get_trace()
+
+
+@app.post("/api/pipeline/inspect/{stage_id}")
+async def inspect_stage(stage_id: str, req: Optional[InspectStageRequest] = None):
+    """Run an isolated, deep-dive diagnostic execution on any single pipeline stage."""
+    q = (req.query or req.question or "Compare Galaxy S24 Ultra and Fold 6 battery and AI features") if req else "Compare Galaxy S24 Ultra and Fold 6 battery and AI features"
+    top_k = req.top_k if req else 5
+    top_n = req.top_n if req else 3
+    s_id = req.session_id if req else "demo-session"
+
+    if stage_id in ("pipeline", "all"):
+        return {
+            "stage": "pipeline",
+            "spec": STAGE_SPECS["pipeline"],
+            "latest_trace": trace_manager.get_trace(),
+        }
+    elif stage_id == "intent":
+        return await inspect_intent_stage(q)
+    elif stage_id == "decomposer":
+        return await inspect_decomposer_stage(q)
+    elif stage_id == "hybrid":
+        return inspect_hybrid_stage(q, top_k=top_k)
+    elif stage_id == "rrf":
+        return inspect_rrf_stage(q, top_k=top_k, k_constant=settings.rrf_k)
+    elif stage_id == "cross_encoder":
+        return inspect_cross_encoder_stage(q, top_n=top_n)
+    elif stage_id == "sharpening":
+        return inspect_sharpening_stage(q, session_id=s_id)
+    elif stage_id == "synthesis":
+        return inspect_synthesis_stage(q)
+    else:
+        return JSONResponse(status_code=404, content={"error": f"Unknown stage '{stage_id}'"})
+
 
 
 # ── Benchmark Scenarios (For Live Demo to Judges) ────────────────────────────

@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Head from 'next/head'
 import { marked } from 'marked'
+import PipelineInspector from '../components/PipelineInspector'
+
 
 interface Source {
   doc_id: string
@@ -74,6 +76,14 @@ export default function Home() {
   const [customTitle, setCustomTitle] = useState('')
   const [customContent, setCustomContent] = useState('')
   const [uploadSuccess, setUploadSuccess] = useState('')
+  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false)
+  const [inspectorStage, setInspectorStage] = useState<string>('pipeline')
+
+  const openInspector = (stageId: string) => {
+    setInspectorStage(stageId)
+    setIsInspectorOpen(true)
+  }
+
 
   // Aggregated Telemetry HUD
   const [sessionTelemetry, setSessionTelemetry] = useState({
@@ -480,69 +490,114 @@ export default function Home() {
             </div>
           </header>
 
-          {/* ── CLEAN ONE UI PIPELINE STEPPER ─────────────────────────────────── */}
+          {/* ── CLEAN ONE UI PIPELINE STEPPER (INTERACTIVE STAGE INSPECTORS) ─────────────────── */}
           <div className="bg-[#F8FAFC] border-b border-slate-200 px-6 py-2.5 flex items-center justify-between text-xs overflow-x-auto gap-2">
-            <div className="flex items-center gap-1.5 text-slate-600 font-semibold text-xs pr-3 border-r border-slate-200">
-              <span className="text-[#0381FE]">●</span> Live Pipeline
-            </div>
+            <button
+              onClick={() => openInspector('pipeline')}
+              className="flex items-center gap-1.5 text-slate-700 hover:text-[#0381FE] font-semibold text-xs pr-3 border-r border-slate-200 transition-all cursor-pointer group shrink-0"
+              title="Click to inspect End-to-End Live Pipeline Architecture & Process"
+            >
+              <span className="text-[#0381FE] animate-pulse">●</span>
+              <span>Live Pipeline</span>
+              <svg className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-[#0381FE]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
 
-            <div className="flex items-center gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                activeStage === 'intent' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
-              }`}>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => openInspector('intent')}
+                title="Click to view Intent Router backend logic, rules & Groq classification"
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer hover:shadow-xs hover:scale-[1.02] active:scale-[0.98] ${
+                  activeStage === 'intent' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
                 1. Intent Router
-              </span>
+              </button>
               <span className="text-slate-300">→</span>
 
-              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                activeStage === 'decomposition' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
-              }`}>
+              <button
+                onClick={() => openInspector('decomposer')}
+                title="Click to view Query Decomposer backend logic & multi-query sub-tasks"
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer hover:shadow-xs hover:scale-[1.02] active:scale-[0.98] ${
+                  activeStage === 'decomposition' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
                 2. Decomposer
-              </span>
+              </button>
               <span className="text-slate-300">→</span>
 
-              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                activeStage === 'retrieval' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
-              }`}>
+              <button
+                onClick={() => openInspector('hybrid')}
+                title="Click to view Parallel Hybrid (Dense 384-dim + BM25Okapi) retrieval processes"
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer hover:shadow-xs hover:scale-[1.02] active:scale-[0.98] ${
+                  activeStage === 'retrieval' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
                 3. Parallel Hybrid
-              </span>
+              </button>
               <span className="text-slate-300">→</span>
 
-              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                activeStage === 'fusion' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
-              }`}>
+              <button
+                onClick={() => openInspector('rrf')}
+                title="Click to view Reciprocal Rank Fusion 1/(60+rank) mathematical calculation"
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer hover:shadow-xs hover:scale-[1.02] active:scale-[0.98] ${
+                  activeStage === 'fusion' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
                 4. RRF Rank Fusion
-              </span>
+              </button>
               <span className="text-slate-300">→</span>
 
-              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                activeStage === 'rerank' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
-              }`}>
+              <button
+                onClick={() => openInspector('cross_encoder')}
+                title="Click to view Cross-Encoder transformer attention logits & passage scoring"
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer hover:shadow-xs hover:scale-[1.02] active:scale-[0.98] ${
+                  activeStage === 'rerank' ? 'bg-[#0381FE] text-white shadow-sm font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
                 5. Cross-Encoder
-              </span>
+              </button>
               <span className="text-slate-300">→</span>
 
-              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                activeStage === 'sharpening' ? 'bg-amber-500 text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
-              }`}>
+              <button
+                onClick={() => openInspector('sharpening')}
+                title="Click to view Conversational Sharpening context blending & delta retention"
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer hover:shadow-xs hover:scale-[1.02] active:scale-[0.98] ${
+                  activeStage === 'sharpening' ? 'bg-amber-500 text-white shadow-sm font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
                 6. Sharpening
-              </span>
+              </button>
               <span className="text-slate-300">→</span>
 
-              <span className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                activeStage === 'synthesis' ? 'bg-emerald-600 text-white shadow-sm font-semibold' : 'bg-white text-slate-600 border border-slate-200'
-              }`}>
+              <button
+                onClick={() => openInspector('synthesis')}
+                title="Click to view Synthesis Stream Groq LPU grounded prompt & token generation"
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer hover:shadow-xs hover:scale-[1.02] active:scale-[0.98] ${
+                  activeStage === 'synthesis' ? 'bg-emerald-600 text-white shadow-sm font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
                 7. Synthesis Stream
-              </span>
+              </button>
             </div>
 
-            {/* Speculative Pre-Warm Badge */}
-            {speculativeCount > 0 && (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-[#0381FE] border border-blue-200 font-semibold text-xs animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-[#0381FE]" />
-                Speculative Cache: {speculativeCount} pre-fetched
-              </div>
-            )}
+            {/* Speculative Pre-Warm Badge or Inspector Hint */}
+            <div className="flex items-center gap-2 shrink-0">
+              {speculativeCount > 0 ? (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-[#0381FE] border border-blue-200 font-semibold text-xs animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-[#0381FE]" />
+                  Speculative Cache: {speculativeCount} pre-fetched
+                </div>
+              ) : (
+                <button
+                  onClick={() => openInspector('pipeline')}
+                  className="hidden xl:flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50/70 hover:bg-blue-100 text-[#0381FE] border border-blue-200/60 font-semibold text-[11px] transition-colors"
+                >
+                  <span>🔍 Click to Inspect</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── CHAT MESSAGES AREA ───────────────────────────────────────────── */}
@@ -968,6 +1023,15 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* ── REAL-TIME BACKEND LOGIC PIPELINE INSPECTOR MODAL ───────────── */}
+      <PipelineInspector
+        isOpen={isInspectorOpen}
+        onClose={() => setIsInspectorOpen(false)}
+        initialStage={inspectorStage}
+        backendUrl={BACKEND_URL}
+        latestTelemetry={sessionTelemetry}
+      />
 
     </>
   )
