@@ -40,7 +40,9 @@ interface Message {
   sharpeningStats?: { retained: number; delta: number }
   telemetry?: Telemetry | null
   speculativeHit?: boolean
+  routingMode?: { needs_rag: boolean; mode: string; reason?: string }
 }
+
 
 interface Scenario {
   id: string
@@ -222,6 +224,7 @@ export default function Home() {
     let receivedSources: Source[] = []
     let receivedSubQueries: SubQuery[] = []
     let receivedIntent: any = null
+    let receivedRouting: { needs_rag: boolean; mode: string; reason?: string } | null = null
     let isSharpened = false
     let sharpeningMeta = { retained: 0, delta: 0 }
     let speculativeHit = false
@@ -271,6 +274,13 @@ export default function Home() {
 
             if (eventType === 'speculative_hit') {
               speculativeHit = true
+            } else if (eventType === 'routing_decision') {
+              receivedRouting = data
+              if (!data.needs_rag) {
+                setActiveStage('synthesis')
+              }
+            } else if (eventType === 'bypass') {
+              setActiveStage('synthesis')
             } else if (eventType === 'intent') {
               receivedIntent = data
               setActiveIntent(data)
@@ -300,6 +310,7 @@ export default function Home() {
               answerAccumulator += data.token
               setMessages(prev => {
                 const last = prev[prev.length - 1]
+                const effectiveRouting = receivedRouting || (receivedSources.length > 0 ? { needs_rag: true, mode: 'hybrid_rag_plus_general' } : { needs_rag: false, mode: 'direct_general_api' })
                 if (last && last.role === 'assistant') {
                   return [
                     ...prev.slice(0, -1),
@@ -309,6 +320,7 @@ export default function Home() {
                       subQueries: receivedSubQueries,
                       sources: receivedSources,
                       intent: receivedIntent?.intent,
+                      routingMode: effectiveRouting,
                       isSharpened,
                       sharpeningStats: sharpeningMeta,
                       speculativeHit,
@@ -324,6 +336,7 @@ export default function Home() {
                       subQueries: receivedSubQueries,
                       sources: receivedSources,
                       intent: receivedIntent?.intent,
+                      routingMode: effectiveRouting,
                       isSharpened,
                       sharpeningStats: sharpeningMeta,
                       speculativeHit,
@@ -653,6 +666,32 @@ export default function Home() {
                       
                       {/* Pipeline Status Badges */}
                       <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {m.routingMode ? (
+                          m.routingMode.needs_rag ? (
+                            <span className="px-3 py-1 rounded-full bg-blue-50 text-[#0381FE] font-semibold border border-blue-200/80 flex items-center gap-1.5 shadow-2xs">
+                              <span className="w-2 h-2 rounded-full bg-[#0381FE]" />
+                              ⚡ Hybrid RAG ({m.sources?.length || 0} Grounded Docs) + General API
+                            </span>
+                          ) : (
+                            <span className="px-3 py-1 rounded-full bg-purple-50 text-purple-700 font-semibold border border-purple-200/80 flex items-center gap-1.5 shadow-2xs">
+                              <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                              🌐 Direct General API (RAG Bypassed)
+                            </span>
+                          )
+                        ) : (
+                          m.sources && m.sources.length > 0 ? (
+                            <span className="px-3 py-1 rounded-full bg-blue-50 text-[#0381FE] font-semibold border border-blue-200/80 flex items-center gap-1.5 shadow-2xs">
+                              <span className="w-2 h-2 rounded-full bg-[#0381FE]" />
+                              ⚡ Hybrid RAG ({m.sources.length} Grounded Docs) + General API
+                            </span>
+                          ) : (
+                            <span className="px-3 py-1 rounded-full bg-purple-50 text-purple-700 font-semibold border border-purple-200/80 flex items-center gap-1.5 shadow-2xs">
+                              <span className="w-2 h-2 rounded-full bg-purple-500" />
+                              🌐 Direct General API (RAG Bypassed)
+                            </span>
+                          )
+                        )}
+
                         {m.intent && (
                           <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-medium border border-slate-200">
                             Intent: <strong className="text-slate-900">{m.intent}</strong>
@@ -672,6 +711,14 @@ export default function Home() {
                           </span>
                         )}
                       </div>
+
+                      {/* Routing Rationale Note if present */}
+                      {m.routingMode?.reason && (
+                        <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-800">Routing Decision:</span>
+                          <span>{m.routingMode.reason}</span>
+                        </div>
+                      )}
 
                       {/* Decomposed Sub-Queries Pills */}
                       {m.subQueries && m.subQueries.length > 1 && (

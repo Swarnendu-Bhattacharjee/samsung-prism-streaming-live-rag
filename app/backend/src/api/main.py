@@ -29,7 +29,7 @@ from src.ingestion.corpus import (
     clear_corpus,
 )
 from src.memory.session_store import SessionStore
-from src.core.synthesizer import synthesize_stream
+from src.core.synthesizer import synthesize_stream, synthesize_general_stream
 from src.core.metrics import metrics_tracker
 from src.api.diagnostics import (
     STAGE_SPECS,
@@ -200,41 +200,83 @@ async def query_stream(request: Request, body: bytes = None):
         yield f"event: pipeline_start\ndata: {json.dumps({'utterance': req.question, 'session_id': session_id, 'timestamp': start_time})}\n\n"
         await asyncio.sleep(0.01)
 
-        # Step 1: Intent Classification & Routing
+        # Step 1: Intent Classification & Routing (RAG Need Analysis)
         t0 = time.time()
         intent_info = await classify_intent(req.question, has_prior_context=has_prior_context)
         intent_type = intent_info.get("intent", "single_factual")
-        needs_retrieval = intent_info.get("needs_retrieval", True)
+        needs_rag = intent_info.get("needs_rag", intent_info.get("needs_retrieval", True))
+        routing_mode = intent_info.get("mode", "hybrid_rag_plus_general" if needs_rag else "direct_general_api")
+        routing_reason = intent_info.get("reason", "Analyzed query requirements")
         intent_lat = round((time.time() - t0)*1000, 1)
-        trace_manager.update_stage("intent", {**intent_info, "latency_ms": intent_lat, "input": req.question})
+
+        trace_manager.update_stage("intent", {
+            **intent_info,
+            "latency_ms": intent_lat,
+            "input": req.question,
+            "needs_rag": needs_rag,
+            "mode": routing_mode,
+        })
         yield f"event: intent\ndata: {json.dumps({**intent_info, 'latency_ms': intent_lat})}\n\n"
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.01)
 
-        # Handle non-retrieval queries (Greetings / Chitchat)
-        if not needs_retrieval:
-            chitchat_answer = (
-                "Hello! I am your Samsung PRISM Live Streaming RAG Assistant. "
-                "I can answer complex, multi-part questions about Galaxy AI, device specifications, "
-                "troubleshooting, and system operations in real time. How can I assist you today?"
-            )
-            ttft_ms = round((time.time() - start_time) * 1000, 1)
-            yield f"event: token\ndata: {json.dumps({'token': chitchat_answer, 'ttft_ms': ttft_ms})}\n\n"
-            sessions.add_message(session_id, "user", req.question)
-            sessions.add_message(session_id, "assistant", chitchat_answer)
+        # Emit explicit routing decision event
+        yield f"event: routing_decision\ndata: {json.dumps({'needs_rag': needs_rag, 'mode': routing_mode, 'reason': routing_reason, 'intent': intent_type})}\n\n"
+        await asyncio.sleep(0.01)
 
-            # Record telemetry
+        # ── BRANCH A: GENERAL API STREAM (RAG Bypassed) ──────────────────────────
+        if not needs_rag:
+            yield f"event: bypass\ndata: {json.dumps({'message': 'RAG retrieval bypassed: General query handled via direct Groq API stream.', 'mode': 'direct_general_api'})}\n\n"
+            token_count = 0
+            answer_parts = []
+            ttft_recorded = False
+            ttft_ms = 0.0
+
+            async for token in synthesize_general_stream(req.question, session_id):
+                if not ttft_recorded:
+                    ttft_ms = round((time.time() - start_time) * 1000, 1)
+                    ttft_recorded = True
+                token_count += 1
+                answer_parts.append(token)
+                yield f"event: token\ndata: {json.dumps({'token': token, 'index': token_count, 'ttft_ms': ttft_ms, 'mode': 'direct_general_api'})}\n\n"
+                await asyncio.sleep(0)
+
+            full_answer = "".join(answer_parts)
+            total_latency_ms = round((time.time() - start_time) * 1000, 1)
+
             t_data = {
                 "recall": 1.0,
-                "groundedness": 1.0,
+                "groundedness": 0.90,
                 "ttft_ms": ttft_ms,
-                "latency_ms": round((time.time() - start_time) * 1000, 1),
+                "latency_ms": total_latency_ms,
+                "token_count": token_count,
                 "cost_usd": 0.0,
+                "mode": "direct_general_api",
+                "needs_rag": False,
+                "sources_count": 0,
             }
             metrics_tracker.record_turn(t_data)
-            trace_manager.update_stage("synthesis", {"full_answer": chitchat_answer, "ttft_ms": ttft_ms})
-            trace_manager.update_stage("pipeline", {"status": "completed", "telemetry": t_data})
-            yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'answer': chitchat_answer})}\n\n"
+            sessions.add_message(session_id, "user", req.question)
+            sessions.add_message(session_id, "assistant", full_answer)
+
+            trace_manager.update_stage("synthesis", {
+                "token_count": token_count,
+                "ttft_ms": ttft_ms,
+                "latency_ms": total_latency_ms,
+                "full_answer": full_answer,
+                "mode": "direct_general_api",
+            })
+            trace_manager.update_stage("pipeline", {
+                "status": "completed",
+                "total_latency_ms": total_latency_ms,
+                "ttft_ms": ttft_ms,
+                "telemetry": t_data,
+                "mode": "direct_general_api",
+            })
+            yield f"event: telemetry\ndata: {json.dumps(t_data)}\n\n"
+            yield f"event: done\ndata: {json.dumps({'session_id': session_id, 'answer': full_answer, 'telemetry': t_data, 'mode': 'direct_general_api'})}\n\n"
             return
+
+        # ── BRANCH B: HYBRID RAG + GENERAL KNOWLEDGE (RAG Activated) ─────────────
 
         # Check for Pre-warmed Speculative Cache
         prewarmed_candidates = speculative_cache.get_prewarmed(session_id, req.question)
@@ -375,6 +417,8 @@ async def query_stream(request: Request, body: bytes = None):
             "cost_usd": cost_usd,
             "is_sharpened": is_sharpened,
             "sources_count": len(reranked),
+            "mode": "hybrid_rag_plus_general",
+            "needs_rag": True,
         }
         metrics_tracker.record_turn(telemetry_data)
 

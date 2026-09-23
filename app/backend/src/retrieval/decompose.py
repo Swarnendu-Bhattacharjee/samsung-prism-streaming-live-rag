@@ -15,17 +15,28 @@ IntentType = Literal["complex_multi_query", "single_factual", "midflow_refinemen
 
 
 SYSTEM_INTENT = """\
-You are an intent classification and routing engine for a real-time conversational RAG system.
-Evaluate the user's natural utterance and determine:
-1. "intent":
-   - "conversational_greeting": greetings, farewells, simple gratitude, pleasantries (no retrieval needed)
-   - "single_factual": a single specific question (needs 1 search query)
-   - "complex_multi_query": contains multiple distinct questions, comparisons, or multifaceted needs (needs 2-4 sub-queries)
-   - "midflow_refinement": follow-up adding constraints or details to an active conversation ("also under $1000", "what about in low light")
-2. "needs_retrieval": boolean (true/false)
+You are an intelligent intent classification and routing engine for a dual-mode conversational RAG system.
+The system has two operational modes:
+1. "needs_rag": true (RAG Mode)
+   Used when the user's query asks about:
+   - Samsung products, Galaxy smartphones, tablets, laptops, smartwatches, earbuds, TVs, or appliances (e.g., S24 Ultra, Fold6, Flip6, Book4, Tab S10, Watch Ultra, Buds3 Pro, Neo QLED, Bespoke AI).
+   - Samsung software, Knox Vault security, SmartThings, One UI, or Galaxy AI features (Circle to Search, Live Translate, Note Assist).
+   - Technical specifications, hardware comparisons involving Samsung devices, battery modes, or troubleshooting.
 
-Output strictly valid JSON:
-{"intent": "conversational_greeting"|"single_factual"|"complex_multi_query"|"midflow_refinement", "needs_retrieval": true|false, "reason": "brief rationale"}
+2. "needs_rag": false (General API Mode)
+   Used when the user's query is:
+   - A general knowledge question (e.g., "What is photosynthesis?", "Who was Alan Turing?", "Explain quantum mechanics", "Write a python script to sort a list").
+   - A conversational greeting, chitchat, gratitude, or creative writing prompt (e.g., "Hi", "Tell me a joke", "How are you?").
+   - A general topic completely unrelated to Samsung product specifications.
+
+Evaluate the utterance and output strictly valid JSON:
+{
+  "intent": "samsung_product_factual" | "complex_multi_query" | "midflow_refinement" | "general_knowledge" | "conversational_greeting",
+  "needs_retrieval": true | false,
+  "needs_rag": true | false,
+  "mode": "hybrid_rag_plus_general" | "direct_general_api",
+  "reason": "Clear explanation why RAG retrieval is required or bypassed"
+}
 """
 
 SYSTEM_DECOMPOSE = """\
@@ -42,17 +53,18 @@ Rules:
 
 
 async def classify_intent(question: str, has_prior_context: bool = False) -> Dict[str, Any]:
-    """Classify whether the utterance needs retrieval and its complexity."""
-    # Fast deterministic heuristic for low latency (<2ms)
+    """Classify whether the utterance needs RAG retrieval or can be served by General API."""
     q_lower = question.lower().strip()
 
-    # Greetings & Chitchat
-    if re.match(r'^(hi|hello|hey|good morning|good evening|thanks|thank you|bye|who are you)\b', q_lower):
+    # Greetings & Chitchat -> Direct General API (No RAG needed)
+    if re.match(r'^(hi|hello|hey|good morning|good evening|thanks|thank you|bye|who are you|how are you|tell me a joke)\b', q_lower):
         return {
             "intent": "conversational_greeting",
             "needs_retrieval": False,
-            "reason": "Standard pleasantry/greeting",
-            "confidence": 0.98,
+            "needs_rag": False,
+            "mode": "direct_general_api",
+            "reason": "Standard pleasantry/greeting; handled directly by General LLM API.",
+            "confidence": 0.99,
         }
 
     # Mid-flow refinement indicators
@@ -61,8 +73,10 @@ async def classify_intent(question: str, has_prior_context: bool = False) -> Dic
         return {
             "intent": "midflow_refinement",
             "needs_retrieval": True,
-            "reason": "Conversational mid-flow detail injection",
-            "confidence": 0.92,
+            "needs_rag": True,
+            "mode": "hybrid_rag_plus_general",
+            "reason": "Conversational mid-flow detail injection; sharpening active context.",
+            "confidence": 0.94,
         }
 
     # Multi-part indicators
@@ -72,7 +86,17 @@ async def classify_intent(question: str, has_prior_context: bool = False) -> Dic
     ]
     is_multi_part = any(re.search(pat, q_lower) for pat in conjunction_patterns) or q_lower.count(" and ") >= 2 or len(question.split()) > 18
 
-    # Attempt LLM classification if API key is configured
+    # Check for Samsung product keywords
+    samsung_keywords = [
+        "samsung", "galaxy", "s24", "s23", "ultra", "fold", "flip", "z fold", "z flip",
+        "book4", "tab s10", "tab s9", "buds", "buds3", "watch ultra", "watch 7",
+        "knox", "smartthings", "bespoke", "qled", "neo qled", "one ui", "provisual",
+        "circle to search", "live translate", "note assist", "generative edit",
+        "bixby", "dex", "vapor chamber", "armor aluminum", "gorilla armor"
+    ]
+    has_samsung_entity = any(kw in q_lower for kw in samsung_keywords)
+
+    # Attempt LLM classification via Groq for precise semantic decision
     try:
         messages = [
             {"role": "system", "content": SYSTEM_INTENT},
@@ -83,20 +107,27 @@ async def classify_intent(question: str, has_prior_context: bool = False) -> Dic
             timeout=2.0
         )
         data = json.loads(re.sub(r'```(json)?', '', resp).strip())
+        needs_rag = data.get("needs_rag", data.get("needs_retrieval", has_samsung_entity))
         return {
-            "intent": data.get("intent", "complex_multi_query" if is_multi_part else "single_factual"),
-            "needs_retrieval": data.get("needs_retrieval", True),
-            "reason": data.get("reason", "LLM classified"),
+            "intent": data.get("intent", "complex_multi_query" if is_multi_part else ("samsung_product_factual" if has_samsung_entity else "general_knowledge")),
+            "needs_retrieval": needs_rag,
+            "needs_rag": needs_rag,
+            "mode": "hybrid_rag_plus_general" if needs_rag else "direct_general_api",
+            "reason": data.get("reason", "LLM classified RAG requirement"),
             "confidence": 0.95,
         }
     except Exception:
-        # High precision fallback
+        # High precision pattern-based fallback
+        needs_rag = has_samsung_entity or has_prior_context
         return {
-            "intent": "complex_multi_query" if is_multi_part else "single_factual",
-            "needs_retrieval": True,
-            "reason": "Pattern-based heuristic classification",
-            "confidence": 0.88,
+            "intent": "complex_multi_query" if (is_multi_part and needs_rag) else ("samsung_product_factual" if needs_rag else "general_knowledge"),
+            "needs_retrieval": needs_rag,
+            "needs_rag": needs_rag,
+            "mode": "hybrid_rag_plus_general" if needs_rag else "direct_general_api",
+            "reason": "Samsung product keyword detected -> RAG retrieved" if needs_rag else "General knowledge query -> Direct General API call",
+            "confidence": 0.90,
         }
+
 
 
 async def decompose_query(question: str) -> List[str]:

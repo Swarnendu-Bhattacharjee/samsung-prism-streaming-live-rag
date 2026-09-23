@@ -23,17 +23,17 @@ from src.retrieval.hybrid import (
 from src.retrieval.decompose import classify_intent, decompose_query, SYSTEM_INTENT, SYSTEM_DECOMPOSE
 from src.retrieval.sharpening import sharpening_engine
 from src.retrieval.speculative import speculative_cache
-from src.core.synthesizer import _format_context, SYSTEM_SYNTH
+from src.core.synthesizer import _format_context, SYSTEM_SYNTH_HYBRID, SYSTEM_GENERAL_API
 from src.ingestion.corpus import get_cached_chunks
 
 STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "pipeline": {
         "id": "pipeline",
         "title": "Full-Duplex Live Streaming Pipeline",
-        "subtitle": "End-to-End Speculative Conversational RAG Architecture",
-        "category": "Orchestration",
-        "description": "Orchestrates concurrent speculative caching, intent routing, parallel query decomposition, dense+sparse hybrid retrieval, Reciprocal Rank Fusion, deep cross-encoder reranking, mid-flow sharpening, and Groq LPU grounded token streaming under 150ms TTFT.",
-        "algorithm": "Speculative Full-Duplex Conversational Orchestration with Server-Sent Events (SSE)",
+        "subtitle": "Dual-Mode Speculative Conversational RAG + General API Architecture",
+        "category": "Orchestration & Decision Gate",
+        "description": "First evaluates if RAG retrieval from Samsung documentation is required. If not, streams direct general answers via Groq LPU API. If yes, orchestrates speculative caching, decomposition, hybrid search, RRF fusion, cross-encoder reranking, sharpening, and hybrid synthesis combining grounded Samsung context with broad general world knowledge.",
+        "algorithm": "Dual-Mode Semantic Gate + Speculative Full-Duplex Conversational Streaming",
         "model": f"Groq LPU ({settings.llm_model}) + all-MiniLM-L6-v2 + ms-marco-MiniLM-L-6-v2",
         "parameters": {
             "llm_provider": settings.llm_provider,
@@ -45,37 +45,41 @@ STAGE_SPECS: Dict[str, Dict[str, Any]] = {
             "top_k": settings.top_k,
             "rerank_top_n": settings.rerank_top_n,
             "context_retention_boost": settings.context_retention_boost,
+            "dual_mode_active": True,
         },
         "logic_steps": [
-            "0. Asynchronous Voice / Keystroke listener pre-warms candidate chunks via speculative cache",
-            "1. Intent Router classifies query (complex_multi_query vs single_factual vs midflow_refinement vs chitchat)",
-            "2. Decomposer splits multi-aspect queries into 2-4 standalone sub-queries resolving coreferences",
-            "3. Parallel Hybrid runs 384-dim Dense Cosine Search and BM25Okapi inverted index concurrently",
-            "4. RRF Rank Fusion merges ranked lists with zero-parameter 1/(k + rank) normalization",
-            "5. Cross-Encoder computes deep all-to-all transformer cross-attention logits to prune irrelevant candidates",
-            "6. Contextual Sharpening retains prior session entities and blends new delta constraints mid-flow",
-            "7. Grounded Token Synthesizer streams verifiable tokens via Groq LPU with explicit [Source X] citations",
+            "0. Decision Gate: Analyze query to decide if Samsung RAG data is needed or General API is sufficient",
+            "1. If General Query -> stream directly from Groq LLM API with zero document retrieval overhead",
+            "2. If Samsung Product Query -> activate full 7-stage Hybrid Grounded RAG Pipeline",
+            "3. Decomposer splits multi-aspect queries into 2-4 standalone sub-queries resolving coreferences",
+            "4. Parallel Hybrid runs 384-dim Dense Cosine Search and BM25Okapi inverted index concurrently",
+            "5. RRF Rank Fusion merges ranked lists with zero-parameter 1/(k + rank) normalization",
+            "6. Cross-Encoder computes deep all-to-all transformer cross-attention logits to prune irrelevant candidates",
+            "7. Contextual Sharpening retains prior session entities and blends new delta constraints mid-flow",
+            "8. Grounded Synthesizer blends verified Samsung citations [Source X] with general world knowledge",
         ],
     },
     "intent": {
         "id": "intent",
-        "title": "Stage 1: Intent Router",
-        "subtitle": "Deterministic Fast-Path + Groq Zero-Shot Semantic Router",
-        "category": "Classification & Semantic Routing",
-        "description": "Determines whether an utterance requires retrieval, detects mid-flow conversational refinements, and classifies single vs complex multi-part queries in < 2ms (heuristic) or ~1.1s (Groq LLM).",
-        "algorithm": "Heuristic Regex Filter + Few-Shot Semantic Classification",
+        "title": "Stage 1: Intent Router & RAG Decision Gate",
+        "subtitle": "Dual-Mode Semantic Analyzer (RAG Required vs General API)",
+        "category": "Decision Gate & Semantic Routing",
+        "description": "Analyzes the user's utterance to decide whether proprietary Samsung product RAG retrieval is required (Branch B) or if the query can be served directly by General LLM API (Branch A).",
+        "algorithm": "Two-Tier Heuristic + Groq Semantic Decision Gate",
         "model": f"Groq LPU ({settings.llm_inference_model})",
         "prompt_template": SYSTEM_INTENT,
         "parameters": {
             "fast_path_latency": "< 2ms",
             "llm_temperature": 0.0,
             "timeout_seconds": 2.0,
+            "supported_modes": ["direct_general_api", "hybrid_rag_plus_general"],
         },
         "logic_steps": [
-            "Step 1: Check for chitchat/greeting patterns (hi, hello, thanks) -> skip retrieval if matched",
-            "Step 2: Check for mid-flow refinement prefixes ('and also', 'what about') when active session context exists -> trigger Sharpening",
-            "Step 3: Check for conjunction patterns ('and also', 'compared to', 'vs') or multiple question marks -> complex_multi_query",
-            "Step 4: Dispatch to Groq LPU zero-shot classification to produce strict JSON with intent, needs_retrieval, confidence, and reason",
+            "Step 1: Check for general chitchat or non-product queries -> route to Direct General API stream",
+            "Step 2: Check for mid-flow refinement prefixes ('and also', 'what about') with active context -> trigger Sharpening",
+            "Step 3: Check for Samsung product entities (Galaxy, S24, Fold, Knox, Book4, One UI) -> trigger RAG Pipeline",
+            "Step 4: Groq zero-shot semantic classifier evaluates query complexity (complex_multi_query vs single_factual vs general_knowledge)",
+            "Step 5: Emit routing_decision event informing the client whether RAG was activated or bypassed",
         ],
     },
     "decomposer": {
@@ -186,23 +190,23 @@ STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     },
     "synthesis": {
         "id": "synthesis",
-        "title": "Stage 7: Synthesis Stream",
-        "subtitle": "Grounded Citation Injection & Groq LPU Ultra-Low TTFT Token Engine",
+        "title": "Stage 7: Hybrid Grounded Synthesis Stream",
+        "subtitle": "Grounded Samsung Citations [Source X] + Broad General World Knowledge",
         "category": "Generation & Streaming",
-        "description": "Formats verified context chunks with explicit [Source X] citations and streams hallucination-free tokens via Groq LPU inference directly to the browser with < 150ms target TTFT.",
-        "algorithm": "Grounded Few-Shot Prompt Injection + Server-Sent Events (SSE) Token Generator",
+        "description": "Combines verified Samsung product context with the model's broader general world knowledge. Facts are grounded with explicit [Source X] citations, while competitor comparisons, technical reasoning, and conversational nuances are augmented by the general LLM API.",
+        "algorithm": "Hybrid Grounded Prompt Augmentation + Groq LPU Token Generator",
         "model": f"Groq LPU ({settings.llm_model})",
-        "prompt_template": SYSTEM_SYNTH,
+        "prompt_template": SYSTEM_SYNTH_HYBRID,
         "parameters": {
             "llm_provider": settings.llm_provider,
             "temperature": 0.3,
             "target_ttft_ms": "< 150ms",
             "chunk_format": "[Source {i}: {source}]\\n{text}",
-            "anti_hallucination_policy": "Strict context constraint: Refuse ungrounded extrapolation",
+            "hybrid_mode": "Samsung Grounded Citations + General World Knowledge",
         },
         "logic_steps": [
             "Step 1: Format reranked chunks into clean context blocks with explicit [Source 1], [Source 2] labels",
-            "Step 2: Inject system anti-hallucination guardrails into the prompt",
+            "Step 2: Inject hybrid system prompt instructing the model to ground Samsung facts while utilizing general knowledge",
             "Step 3: Call Groq AsyncGroq chat completion with stream=True",
             "Step 4: Measure Time to First Token (TTFT) on the arrival of chunk index 1",
             "Step 5: Yield tokens one-by-one via SSE 'event: token' with index and TTFT metrics",
@@ -412,7 +416,7 @@ def inspect_synthesis_stage(query: str) -> Dict[str, Any]:
     candidates = hybrid_search(query, top_k=3)
     reranked = rerank_results(query, candidates, top_n=3)
     formatted_context = _format_context(reranked)
-    formatted_prompt = SYSTEM_SYNTH.format(context=formatted_context, question=query)
+    formatted_prompt = SYSTEM_SYNTH_HYBRID.format(context=formatted_context, question=query)
 
     return {
         "stage": "synthesis",
