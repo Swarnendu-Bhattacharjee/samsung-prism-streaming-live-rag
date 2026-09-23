@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Head from 'next/head'
+import Link from 'next/link'
 import { marked } from 'marked'
 import PipelineInspector from '../components/PipelineInspector'
 
@@ -480,6 +481,17 @@ export default function Home() {
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span>{corpusStats.documents} Samsung Products ({corpusStats.chunks} Chunks)</span>
               </div>
+
+              <Link
+                href="/presentation"
+                className="px-3.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-xs font-semibold text-[#034EA2] transition-colors flex items-center gap-1.5 border border-blue-200"
+                title="Open 12-Slide Pitch Deck Presentation"
+              >
+                <svg className="w-3.5 h-3.5 text-[#0381FE]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                </svg>
+                Pitch Deck
+              </Link>
 
               <button
                 onClick={() => setShowCorpusModal(true)}
