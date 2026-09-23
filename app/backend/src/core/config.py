@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     context_retention_boost: float = 0.25
 
     # API Keys
-    groq_api_key: str = os.environ.get("GROQ_API_KEY", "your_groq_api_key_here")
+    groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     gemini_api_key: Optional[str] = os.environ.get("GEMINI_API_KEY", "")
     openai_api_key: Optional[str] = os.environ.get("OPENAI_API_KEY", "")
     anthropic_api_key: Optional[str] = os.environ.get("ANTHROPIC_API_KEY", "")
