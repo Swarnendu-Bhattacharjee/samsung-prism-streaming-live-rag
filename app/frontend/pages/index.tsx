@@ -53,7 +53,23 @@ interface Scenario {
   description: string
 }
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+const getBackendUrl = () => {
+  if (typeof window === 'undefined') return ''
+  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL
+  if (envUrl) {
+    if (
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1' &&
+      (envUrl.includes('localhost') || envUrl.includes('127.0.0.1'))
+    ) {
+      return ''
+    }
+    return envUrl.replace(/\/+$/, '')
+  }
+  return ''
+}
+
+const BACKEND_URL = typeof window !== 'undefined' ? getBackendUrl() : ''
 
 // Configure marked for clean inline output
 marked.setOptions({
@@ -381,7 +397,7 @@ export default function Home() {
         ...prev,
         {
           role: 'assistant',
-          content: `Unable to complete query stream (${err.message}). Verify backend is running on ${BACKEND_URL}.`,
+          content: `Unable to complete query stream (${err.message}). Verify backend connection (${BACKEND_URL || 'serverless pipeline'}).`,
           timestamp: Date.now(),
         },
       ])

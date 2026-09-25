@@ -88,11 +88,12 @@ async def classify_intent(question: str, has_prior_context: bool = False) -> Dic
 
     # Check for Samsung product keywords
     samsung_keywords = [
-        "samsung", "galaxy", "s24", "s23", "ultra", "fold", "flip", "z fold", "z flip",
-        "book4", "tab s10", "tab s9", "buds", "buds3", "watch ultra", "watch 7",
+        "samsung", "galaxy", "s25", "s24", "s23", "ultra", "fold", "flip", "z fold", "z flip",
+        "book5", "book4", "tab s10", "tab s9", "buds", "buds3", "watch ultra", "watch 7", "ring",
         "knox", "smartthings", "bespoke", "qled", "neo qled", "one ui", "provisual",
         "circle to search", "live translate", "note assist", "generative edit",
-        "bixby", "dex", "vapor chamber", "armor aluminum", "gorilla armor"
+        "bixby", "dex", "vapor chamber", "armor aluminum", "gorilla armor",
+        "dimensity 9300", "snapdragon 8 elite", "titanium"
     ]
     has_samsung_entity = any(kw in q_lower for kw in samsung_keywords)
 

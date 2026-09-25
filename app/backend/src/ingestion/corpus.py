@@ -214,10 +214,32 @@ def load_demo_corpus():
     """Load the Samsung Products knowledge base and build the BM25 index."""
     global _cached_chunks
     from src.retrieval.hybrid import build_bm25_index
+    import json
+    import os
 
     _cached_chunks = []
     chunk_count = 0
     all_chunk_texts = []
+
+    json_path = os.path.join(os.path.dirname(__file__), "samsung_knowledge_base.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                kb_data = json.load(f)
+            for doc in kb_data:
+                doc_id = doc.get("doc_id", "samsung-doc")
+                source = doc.get("source", doc.get("title", doc_id))
+                for sec in doc.get("sections", []):
+                    sec_text = f"Section: {sec.get('section', '')}\n{sec.get('text', '')}"
+                    chunks = chunk_text(sec_text, doc_id, source)
+                    _cached_chunks.extend(chunks)
+                    all_chunk_texts.extend([c["text"] for c in chunks])
+                    chunk_count += len(chunks)
+            build_bm25_index(all_chunk_texts)
+            print(f"[Corpus] Loaded {len(kb_data)} rich Samsung product documents ({chunk_count} chunks) from JSON database.")
+            return chunk_count
+        except Exception as e:
+            print(f"[Corpus] Error loading JSON knowledge base: {e}, falling back to built-in.")
 
     for doc in SAMSUNG_PRODUCTS_CORPUS:
         chunks = chunk_text(doc["text"], doc["doc_id"], doc["source"])
