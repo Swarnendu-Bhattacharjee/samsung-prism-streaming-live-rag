@@ -2,6 +2,13 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 export const SCENARIOS = [
   {
+    id: "iphone-16-vs-s24",
+    title: "iPhone 16 vs Galaxy S24",
+    prompt: "iphone 16 vs s24",
+    category: "Balanced Head-to-Head",
+    description: "Evaluates fair, balanced comparison between Apple iPhone 16 and Samsung Galaxy S24 combining grounded Samsung specs with general API knowledge without criticism."
+  },
+  {
     id: "s25-vs-s24-ultra",
     title: "S25 Ultra vs S24 Ultra Comparison",
     prompt: "Compare Galaxy S25 Ultra vs S24 Ultra in terms of camera, titanium build, and processor.",

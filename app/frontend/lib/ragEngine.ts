@@ -112,13 +112,23 @@ export function getCorpusStats() {
 // ── DUAL-MODE DECISION GATE ──────────────────────────────────────────────────
 
 const SAMSUNG_KEYWORDS = [
-    'samsung', 'galaxy', 's25', 's24', 's23', 's22', 'ultra', 'fold', 'fold6', 'fold5',
-    'flip', 'flip6', 'flip5', 'tab', 's10', 's9', 'book', 'book4', 'book5', 'pro 360',
-    'watch', 'buds', 'buds3', 'ring', 'knox', 'smartthings', 'dex', 'one ui', 'now bar',
-    'flexwindow', 'flexcam', 'blade', 'exynos', 'isocell', 'bespoke', 'jet bot', 'neo qled',
-    'oled', 'the frame', 'family hub', 'optiwash', 'snapdragon 8 elite', 'dimensity 9300',
-    'spen', 's pen', 'nightography', 'circle to search', 'live translate', 'generative edit',
-    'gorilla armor', 'titanium'
+  'samsung', 'galaxy', 's25', 's24', 's23', 's22', 'ultra', 'fold', 'fold6', 'fold5',
+  'flip', 'flip6', 'flip5', 'tab', 's10', 's9', 'book', 'book4', 'book5', 'pro 360',
+  'watch', 'buds', 'buds3', 'ring', 'knox', 'smartthings', 'dex', 'one ui', 'now bar',
+  'flexwindow', 'flexcam', 'blade', 'exynos', 'isocell', 'bespoke', 'jet bot', 'neo qled',
+  'oled', 'the frame', 'family hub', 'optiwash', 'snapdragon 8 elite', 'dimensity 9300',
+  'spen', 's pen', 'nightography', 'circle to search', 'live translate', 'generative edit',
+  'gorilla armor', 'titanium'
+]
+
+const COMPETITOR_KEYWORDS = [
+  'iphone', 'apple', 'ios', 'macbook', 'mac', 'ipad', 'airpods', 'pixel', 'google pixel',
+  'snapdragon x elite', 'intel core ultra', 'dell', 'thinkpad', 'surface', 'xiaomi',
+  'oneplus', 'huawei', 'motorola', 'oppo', 'vivo', 'asus', 'sony xperia'
+]
+
+const COMPARISON_KEYWORDS = [
+  'vs', 'versus', 'compare', 'comparison', 'difference between', 'better than', 'or'
 ]
 
 const HARDWARE_ATTRIBUTES = [
@@ -136,7 +146,7 @@ export function classifyIntent(query: string): {
 } {
   const lower = query.toLowerCase().trim()
 
-  // 1. Direct Greetings & Conversational Chitchat -> Direct General API
+  // 1. Direct Greetings & Conversational Chitchat -> Direct General API (Type 1)
   if (/^(hi|hello|hey|good morning|good afternoon|good evening|thanks|thank you|bye|who are you|how are you|tell me a joke|what can you do|what is your name)\b/i.test(lower)) {
     return {
       needs_rag: false,
@@ -148,9 +158,33 @@ export function classifyIntent(query: string): {
   }
 
   const hasSamsungKeyword = SAMSUNG_KEYWORDS.some((kw) => lower.includes(kw))
+  const hasCompetitorKeyword = COMPETITOR_KEYWORDS.some((ck) => lower.includes(ck))
+  const hasComparisonKeyword = COMPARISON_KEYWORDS.some((cmp) => new RegExp(`\\b${cmp}\\b`, 'i').test(lower))
   const hasAttributeKeyword = HARDWARE_ATTRIBUTES.some((attr) => lower.includes(attr))
 
-  // 2. Clear Samsung Product or Spec Query -> Hybrid RAG
+  // 2. Head-to-Head Comparison between Samsung & Competitor (Type 3: e.g. iPhone 16 vs S24)
+  if ((hasSamsungKeyword || hasAttributeKeyword) && (hasCompetitorKeyword || (hasComparisonKeyword && hasCompetitorKeyword))) {
+    return {
+      needs_rag: true,
+      mode: 'hybrid_rag_plus_general',
+      intent: 'competitor_comparison',
+      reason: 'Balanced head-to-head comparison: Grounded Samsung specs [DOC-x] + General API competitor intelligence without bias.',
+      confidence: 0.98,
+    }
+  }
+
+  // 3. Samsung-to-Samsung Comparison (e.g. S25 Ultra vs S24 Ultra)
+  if (hasSamsungKeyword && hasComparisonKeyword) {
+    return {
+      needs_rag: true,
+      mode: 'hybrid_rag_plus_general',
+      intent: 'samsung_comparison',
+      reason: 'Comparative evaluation between Samsung Galaxy devices grounded in official documentation.',
+      confidence: 0.98,
+    }
+  }
+
+  // 4. Pure Samsung Product / Spec Query (Type 2: e.g. S24 specs, Fold6 FlexHinge)
   if (hasSamsungKeyword) {
     return {
       needs_rag: true,
@@ -161,7 +195,7 @@ export function classifyIntent(query: string): {
     }
   }
 
-  // 3. Ambiguous Hardware Attribute Query -> Hybrid RAG
+  // 5. Ambiguous Hardware Attribute Query -> Hybrid RAG
   if (hasAttributeKeyword) {
     return {
       needs_rag: true,
@@ -172,13 +206,13 @@ export function classifyIntent(query: string): {
     }
   }
 
-  // 4. Everything else (General Science, Math, Coding, World Knowledge) -> Direct General API
+  // 6. General API Query (Type 1: Science, Coding, Math, Competitor vs Competitor without Samsung)
   return {
     needs_rag: false,
     mode: 'direct_general_api',
     intent: 'general_world_knowledge',
     reason: 'Query pertains to general world knowledge, science, or concepts outside Samsung catalogue. Retrieval bypassed for ultra-fast TTFT.',
-    confidence: 0.92,
+    confidence: 0.95,
   }
 }
 
@@ -187,14 +221,57 @@ export function classifyIntent(query: string): {
 export function decomposeQuery(query: string): string[] {
   const lower = query.toLowerCase()
 
-  if (lower.includes('compare') || lower.includes('vs') || lower.includes('difference between')) {
-    // Generate sub-queries for comparative attributes
+  // 1. Detect Competitor vs Samsung comparison (e.g. "iphone 16 vs s24")
+  const hasCompetitor = COMPETITOR_KEYWORDS.some((ck) => lower.includes(ck))
+  const isComparison = lower.includes('vs') || lower.includes('compare') || lower.includes('difference between') || lower.includes('versus')
+
+  if (hasCompetitor && isComparison) {
+    // Extract Samsung product target to ensure retrieval retrieves the exact Samsung device
+    let samsungTarget = 'Samsung Galaxy'
+    if (lower.includes('s25 ultra')) samsungTarget = 'Samsung Galaxy S25 Ultra'
+    else if (lower.includes('s25')) samsungTarget = 'Samsung Galaxy S25'
+    else if (lower.includes('s24 ultra')) samsungTarget = 'Samsung Galaxy S24 Ultra'
+    else if (lower.includes('s24+') || lower.includes('s24 plus')) samsungTarget = 'Samsung Galaxy S24+'
+    else if (lower.includes('s24')) samsungTarget = 'Samsung Galaxy S24'
+    else if (lower.includes('s23 ultra')) samsungTarget = 'Samsung Galaxy S23 Ultra'
+    else if (lower.includes('s23')) samsungTarget = 'Samsung Galaxy S23'
+    else if (lower.includes('fold6') || lower.includes('fold 6')) samsungTarget = 'Samsung Galaxy Z Fold6'
+    else if (lower.includes('flip6') || lower.includes('flip 6')) samsungTarget = 'Samsung Galaxy Z Flip6'
+    else if (lower.includes('book4') || lower.includes('book 4')) samsungTarget = 'Samsung Galaxy Book4 Ultra'
+    else if (lower.includes('book5') || lower.includes('book 5')) samsungTarget = 'Samsung Galaxy Book5'
+    else if (lower.includes('tab s10') || lower.includes('tab 10')) samsungTarget = 'Samsung Galaxy Tab S10 Ultra'
+    else if (lower.includes('watch ultra')) samsungTarget = 'Samsung Galaxy Watch Ultra'
+    else if (lower.includes('watch 7')) samsungTarget = 'Samsung Galaxy Watch 7'
+    else if (lower.includes('buds3') || lower.includes('buds 3')) samsungTarget = 'Samsung Galaxy Buds3 Pro'
+    else if (lower.includes('ring')) samsungTarget = 'Samsung Galaxy Ring'
+
+    return [
+      `${samsungTarget} display dynamic amoled and camera specifications`,
+      `${samsungTarget} processor chipset battery charging specifications`,
+      `${samsungTarget} Galaxy AI features and hardware architecture`,
+    ]
+  }
+
+  // 2. Detect Samsung vs Samsung comparison (e.g. "S25 Ultra vs S24 Ultra")
+  if (isComparison && lower.includes('s25') && lower.includes('s24')) {
+    return [
+      'Samsung Galaxy S25 Ultra processor Snapdragon 8 Elite titanium camera',
+      'Samsung Galaxy S24 Ultra processor Snapdragon 8 Gen 3 titanium camera',
+      'Galaxy S25 Ultra vs Galaxy S24 Ultra comparison specifications',
+    ]
+  }
+
+  // 3. Multi-attribute comparison
+  if (isComparison) {
     const subQueries = [query]
     if (lower.includes('camera')) subQueries.push(`${query} camera sensor megapixels zoom optical`)
     if (lower.includes('battery') || lower.includes('charging')) subQueries.push(`${query} battery mAh wired fast charging hours`)
     if (lower.includes('processor') || lower.includes('chip') || lower.includes('performance')) subQueries.push(`${query} processor chipset cpu gpu npu benchmark`)
     if (lower.includes('display') || lower.includes('screen')) subQueries.push(`${query} display resolution refresh rate nits brightness`)
     
+    if (subQueries.length === 1) {
+      subQueries.push(`${query} hardware display camera processor battery specs`)
+    }
     return subQueries.slice(0, 3)
   }
 
@@ -255,6 +332,15 @@ export function bm25Search(query: string, topK: number = 8): { chunk: ChunkItem;
       score += 3.5
     }
 
+    // Boost chunks whose title matches target product keywords in query
+    const productKeywords = ['s25', 's24', 's23', 'fold6', 'flip6', 'book4', 'book5', 'tab', 'watch', 'buds3', 'ring']
+    productKeywords.forEach((pk) => {
+      if (qTokens.includes(pk)) {
+        if (chunk.title.toLowerCase().includes(pk)) score += 4.5
+        if (chunk.section.toLowerCase().includes(pk)) score += 2.0
+      }
+    })
+
     return { chunk, score }
   })
 
@@ -270,6 +356,7 @@ export function semanticSearch(query: string, topK: number = 8): { chunk: ChunkI
   if (qTokens.length === 0) return []
 
   // Cosine-like keyword overlap weighted by length and entity presence
+  const productKeywords = ['s25', 's24', 's23', 'fold6', 'flip6', 'book4', 'book5', 'tab', 'watch', 'buds3', 'ring']
   const scored = chunks.map((chunk) => {
     const chunkTokens = tokenize(chunk.text)
     const chunkSet = new Set(chunkTokens)
@@ -280,7 +367,13 @@ export function semanticSearch(query: string, topK: number = 8): { chunk: ChunkI
     })
 
     const norm = Math.sqrt(qTokens.length * Math.min(chunkTokens.length, 100))
-    const score = norm > 0 ? overlap / norm : 0
+    let entityBoost = 0
+    productKeywords.forEach((pk) => {
+      if (qTokens.includes(pk) && chunk.title.toLowerCase().includes(pk)) {
+        entityBoost += 0.5
+      }
+    })
+    const score = (norm > 0 ? overlap / norm : 0) + entityBoost
 
     return { chunk, score }
   })
@@ -338,7 +431,10 @@ export function sharpenContext(
   query: string,
   beta: number = 0.5
 ): { sharpenedText: string; sources: SearchResult[]; stats: { rawTokens: number; sharpenedTokens: number; reduction: string } } {
-  const qTokens = new Set(tokenize(query))
+  const baseTokens = tokenize(query)
+  // Ensure essential hardware spec terms are scored so specs aren't stripped during comparisons
+  const specAnchorTerms = ['display', 'camera', 'processor', 'battery', 'mah', 'nits', 'amoled', 'zoom', 'ai', 'charging', 'specs']
+  const qTokens = new Set([...baseTokens, ...specAnchorTerms])
 
   const sharpenedSources = sources.map((src, idx) => {
     const sentences = src.text.split(/(?<=[.!?])\s+/)

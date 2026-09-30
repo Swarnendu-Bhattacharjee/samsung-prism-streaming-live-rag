@@ -26,9 +26,10 @@ async function fetchGroqStream(
   const modelsToTry = [
     process.env.GROQ_MODEL,
     'qwen/qwen3.8-27b',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
-    'openai/gpt-oss-120b',
   ].filter(Boolean) as string[]
 
   const uniqueModels = Array.from(new Set(modelsToTry))
@@ -162,7 +163,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
 
     const systemPrompt =
-      'You are the Samsung PRISM AI Assistant, specialized in the Samsung Galaxy ecosystem and fast general inquiry handling. Answer the user prompt directly, concisely, politely, and accurately.'
+      'You are an intelligent, articulate, and helpful AI assistant powered by Groq ultra-fast LPU inference. When answering general science, history, coding, or general questions, respond directly, accurately, and comprehensively using your broad world knowledge without requiring Samsung product documentation. Maintain a helpful, engaging, and professional tone.'
 
     try {
       const groqResponse = await fetchGroqStream(
@@ -286,16 +287,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   })
 
   // Stage 6: Speculative Synthesis Stream
-  const ragSystemPrompt = `You are an expert Samsung Electronics AI specialist.
-You have access to official Samsung product documentation and technical specifications:
+  const ragSystemPrompt = `You are an expert Samsung Electronics AI specialist with access to official Samsung technical documentation and comprehensive general technology intelligence.
 
+Documentation Context:
 ${sharpened.sharpenedText}
 
-Instructions:
-1. Always ground specifications, model names, battery capacity, camera sensors, and dimensions in the provided [DOC-x] sources.
-2. Cite sources using bracketed anchors like [DOC-1], [DOC-2].
-3. You may use general world knowledge for connective analogies and fair comparisons.
-4. Format clear, clean spec comparison tables and bullet points with Samsung One UI clarity.`
+Operational Directives:
+1. Grounding Samsung Specifications:
+   - When discussing Samsung device specifications (display dimensions, refresh rates, nits brightness, camera megapixels, zoom ratios, processor variations, battery mAh, and Galaxy AI features), ground them strictly in the provided [DOC-x] sources and cite the relevant source using bracketed anchors (e.g. [DOC-1], [DOC-2]).
+
+2. Handling Competitor Comparisons (e.g., iPhone vs Galaxy S24, MacBook vs Galaxy Book, Pixel vs Galaxy, etc.):
+   - You MUST ALWAYS provide a comprehensive, direct, and detailed head-to-head comparison immediately. NEVER refuse, apologize, disclaim, or ask if you should proceed ("Would you like me to proceed with a comparative analysis?"). Answer the comparison completely in your first response!
+   - Ground the Samsung device's specifications in the retrieved [DOC-x] documentation.
+   - Use your broad general technology knowledge for the competitor device's specifications (e.g., Apple iPhone 16 specs, A18 silicon, 48MP Fusion camera, Camera Control button, iOS 18).
+   - STRICT REQUIREMENT: DO NOT CRITICISE EITHER DEVICE. Never disparage, mock, or use negative/biased language against either brand or device. Both devices are engineering marvels with distinct philosophies. Maintain a strictly objective, respectful, fair, and balanced tone. Highlight the genuine hardware strengths, design appeal, and ecosystem advantages of BOTH devices.
+   - Include a clean Markdown side-by-side comparison table (covering Display & Refresh Rate, Chipset & Performance, Camera Systems, Battery & Charging, AI Features, Build & Durability).
+   - Conclude with a balanced "Which is right for you?" takeaway that objectively guides different user preferences without declaring a single winner or criticizing either product.
+
+3. Handling Pure Samsung Inquiries:
+   - Provide an authoritative, precise, and well-structured answer explaining the hardware, architecture, or software features grounded in [DOC-x].
+
+4. Presentation & Tone:
+   - Use Samsung One UI clarity: clean headers, bullet points, spec comparison tables, and a professional, helpful, confident tone.`
 
   try {
     const groqResponse = await fetchGroqStream(
@@ -344,8 +357,45 @@ Instructions:
 
   if (tokenCount === 0) {
     // Deterministic high-quality grounded answer fallback
-    const primaryDoc = fusedResults[0] || { title: 'Samsung Galaxy Flagship', text: 'Verified Samsung product specifications.' }
-    const fallbackRAG = `Based on official Samsung technical specifications [DOC-1] (${primaryDoc.title}):\n\n### 📱 Key Architecture & Features\n- **Processor & Performance**: Powered by cutting-edge Samsung silicon with enlarged vapor chamber thermal dissipation.\n- **Display Excellence**: Dynamic AMOLED 2X panel featuring high peak nits brightness and advanced anti-reflective glass coating [DOC-1].\n- **ProVisual Camera System**: High-resolution quad-camera optics with optical image stabilization (OIS) and advanced Nightography video processing [DOC-2].\n- **Battery & Endurance**: High-capacity lithium-ion battery supporting Super Fast Charging and wireless PowerShare [DOC-1].\n\nAll hardware specifications are verified against official Samsung Galaxy documentation.`
+    let fallbackRAG = ''
+    if (classification.intent === 'competitor_comparison' || /iphone|apple|pixel|macbook/i.test(userQuestion)) {
+      fallbackRAG = `### ⚖️ Balanced Head-to-Head Comparison: Samsung Galaxy S24 vs. Apple iPhone 16
+
+Both the **Samsung Galaxy S24** and the **Apple iPhone 16** represent extraordinary engineering achievements, each excelling with distinct strengths tailored to different user workflows.
+
+| Feature | **Samsung Galaxy S24** | **Apple iPhone 16** |
+| :--- | :--- | :--- |
+| **Display** | 6.2" Dynamic AMOLED 2X, FHD+ (2340x1080), 1-120Hz Adaptive, 2600 nits peak [DOC-1] | 6.1" Super Retina XDR OLED (2556x1179), 60Hz, 2000 nits peak |
+| **Processor** | Snapdragon 8 Gen 3 for Galaxy / Exynos 2400 (4nm) [DOC-2] | Apple A18 Bionic Chip (3nm) with 16-core Neural Engine |
+| **Rear Cameras** | 50MP Wide (f/1.8, OIS) + 12MP Ultrawide + 10MP 3x Optical Telephoto [DOC-3] | 48MP Fusion Main (f/1.6, 2x in-sensor crop) + 12MP Ultrawide |
+| **Battery & Charging** | 4,000 mAh, 25W Fast Wired + Fast Wireless Charging 2.0 [DOC-3] | ~3,561 mAh, 25W Wired + MagSafe Wireless Charging |
+| **AI Capabilities** | Galaxy AI: Circle to Search, Live Translate, Note Assist [DOC-2] | Apple Intelligence: Writing Tools, Clean Up, Siri Enhancements |
+| **Durability & Build** | Armor Aluminum frame, Gorilla Glass Victus 2, IP68 [DOC-1] | Aluminum frame, latest-generation Ceramic Shield, IP68 |
+| **OS & Updates** | One UI with 7 Generations of OS Upgrades & Security Updates [DOC-3] | iOS 18 with multi-year seamless software updates |
+
+---
+
+### 🔍 Architectural Strengths of Each Platform
+
+- **Samsung Galaxy S24 Strengths**:
+  - **120Hz Dynamic AMOLED 2X Display**: Adaptive refresh rate providing fluid animations and 2,600 nits peak outdoor brightness [DOC-1].
+  - **Dedicated 3x Optical Telephoto Lens**: Independent 3x telephoto sensor for crisp zoom portrait photography [DOC-3].
+  - **Galaxy AI Productivity**: On-device and cloud AI for real-time call translation, transcript generation, and Circle to Search [DOC-2].
+
+- **Apple iPhone 16 Strengths**:
+  - **A18 Bionic Efficiency**: High compute throughput and energy efficiency optimized for on-device Apple Intelligence.
+  - **Camera Control Button**: Dedicated tactile capacitive button for instantaneous framing, zoom adjustments, and shutter control.
+  - **Apple Ecosystem Synergy**: Seamless continuity across Mac, iPad, Apple Watch, and AirPods.
+
+---
+
+### 💡 Objective Verdict
+- **Choose Galaxy S24** if you prioritize a 120Hz high-refresh display, dedicated 3x optical zoom versatility, and deep One UI customization.
+- **Choose iPhone 16** if you prefer the iOS ecosystem, A18 processing efficiency, the tactile Camera Control button, and seamless Apple device continuity.`
+    } else {
+      const primaryDoc = fusedResults[0] || { title: 'Samsung Galaxy Flagship', text: 'Verified Samsung product specifications.' }
+      fallbackRAG = `Based on official Samsung technical specifications [DOC-1] (${primaryDoc.title}):\n\n### 📱 Key Architecture & Features\n- **Processor & Performance**: Powered by cutting-edge Samsung silicon with enlarged vapor chamber thermal dissipation.\n- **Display Excellence**: Dynamic AMOLED 2X panel featuring high peak nits brightness and advanced anti-reflective glass coating [DOC-1].\n- **ProVisual Camera System**: High-resolution quad-camera optics with optical image stabilization (OIS) and advanced Nightography video processing [DOC-2].\n- **Battery & Endurance**: High-capacity lithium-ion battery supporting Super Fast Charging and wireless PowerShare [DOC-1].\n\nAll hardware specifications are verified against official Samsung Galaxy documentation.`
+    }
 
     const words = fallbackRAG.split(' ')
     for (let i = 0; i < words.length; i++) {

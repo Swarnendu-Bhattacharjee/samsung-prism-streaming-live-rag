@@ -726,6 +726,12 @@ export default function Home() {
                           </span>
                         )}
 
+                        {m.intent === 'competitor_comparison' && (
+                          <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 font-medium border border-emerald-200 flex items-center gap-1.5 shadow-2xs">
+                            ⚖️ Balanced Comparison (Unbiased)
+                          </span>
+                        )}
+
                         {m.speculativeHit && (
                           <span className="px-2.5 py-1 rounded-full bg-blue-50 text-[#0381FE] font-medium border border-blue-200 flex items-center gap-1.5">
                             <span className="w-2 h-2 rounded-full bg-[#0381FE]" />
