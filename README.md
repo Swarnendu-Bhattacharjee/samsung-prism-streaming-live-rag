@@ -27,7 +27,7 @@
 | :--- | :---: | :--- |
 | **1. Source Code** | ✅ Complete | Full-Duplex Next.js Frontend (`app/frontend`), FastAPI Backend (`app/backend`), and Unified Samsung Knowledge Base (23 Products / 72 Chunks). |
 | **2. Presentation** | ✅ Complete | PowerPoint Pitch Deck: [`Samsung_PRISM_Live_Streaming_RAG_Pitch.pptx`](file:///home/swarnendu/hackathon-rag/Samsung_PRISM_Live_Streaming_RAG_Pitch.pptx) & Interactive Web Deck at `/presentation`. |
-| **3. Video** | ⏳ In Progress | Recording script ready: [`PRODUCT_PITCH_RECORDING_SCRIPT.txt`](file:///home/swarnendu/hackathon-rag/PRODUCT_PITCH_RECORDING_SCRIPT.txt). Video Link: *[YouTube / Google Drive Link to be inserted by Team DQL]*. |
+| **3. Video** | ✅ Complete | Repository Video File: [`DQL_Streaming_Live_RAG.mp4`](file:///home/swarnendu/hackathon-rag/DQL_Streaming_Live_RAG.mp4) & Script: [`PRODUCT_PITCH_RECORDING_SCRIPT.txt`](file:///home/swarnendu/hackathon-rag/PRODUCT_PITCH_RECORDING_SCRIPT.txt). |
 | **4. AI Disclosure** | ✅ Complete | Filled Word Document: [`LangAI3.0_AI_Disclosure_DQL.docx`](file:///home/swarnendu/hackathon-rag/LangAI3.0_AI_Disclosure_DQL.docx) & Markdown: [`AI_DISCLOSURE.md`](file:///home/swarnendu/hackathon-rag/AI_DISCLOSURE.md). |
 | **5. Detailed README** | ✅ Complete | This master README file covering architecture, benchmarks, setup, and explainability. |
 | **6. SDK / Client** | ✅ Complete | Python Streaming SDK: [`sdk/samsung_rag_client.py`](file:///home/swarnendu/hackathon-rag/sdk/samsung_rag_client.py) with zero-dependency SSE streaming contract. |
@@ -157,10 +157,13 @@ hackathon-rag/
 ├── sdk/
 │   ├── samsung_rag_client.py           # Zero-dependency Python client SDK
 │   └── README.md                       # SDK usage documentation
-├── AI_DISCLOSURE.md                    # Markdown version of AI disclosure declaration
-├── HACKATHON_PRESENTATION_GUIDE.md     # Pitch master guide & judge defense matrix
-├── requirements.txt                    # Root Python dependencies
-└── README.md                           # Master submission README
+├── DQL_Streaming_Live_RAG.mp4             # High-definition video demo and product pitch (40MB)
+├── Samsung_PRISM_Live_Streaming_RAG_Pitch.pptx # 12-slide PowerPoint presentation
+├── LangAI3.0_AI_Disclosure_DQL.docx       # Official filled AI disclosure form
+├── AI_DISCLOSURE.md                       # Markdown version of AI disclosure declaration
+├── HACKATHON_PRESENTATION_GUIDE.md        # Pitch master guide & judge defense matrix
+├── requirements.txt                       # Root Python dependencies
+└── README.md                              # Master submission README
 ```
 
 ---
