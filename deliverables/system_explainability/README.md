@@ -29,9 +29,6 @@ Welcome to the **System Explainability Hub**. This directory provides 100% white
 5. **[05. Devil's Advocate Defense & Technical Rebuttals](file:///home/swarnendu/hackathon-rag/deliverables/system_explainability/05_DEVILS_ADVOCATE_DEFENSE.md)**
    * Proactive answers to tough judge questions: multi-stage latency overhead, hallucination boundaries, edge device NPU deployment, and SKU keyword matching.
 
-6. **[06. Video Demo & Walkthrough Script](file:///home/swarnendu/hackathon-rag/deliverables/system_explainability/06_VIDEO_DEMO_WALKTHROUGH_SCRIPT.md)**
-   * Turnkey 3-minute and 5-minute video recording scripts with timestamped scenes, exact queries to run, and speaking points.
-
 ---
 
 ## Live System Endpoints

@@ -110,7 +110,7 @@ The narrative and visual assets communicating project impact, technical depth, a
   * **Judge Deck**: Formal 12-slide Microsoft PowerPoint file (`deliverables/Samsung_PRISM_Live_Streaming_RAG_Pitch.pptx`).
   * **In-App Slide Presentation**: Dynamic web-based presentation route (`/presentation`) built directly into the Next.js frontend with keyboard navigation.
 * **`video`**:
-  * Detailed minute-by-minute demo walkthrough scripts (`06_VIDEO_DEMO_WALKTHROUGH_SCRIPT.md`) with cue cards, exact user queries, and UI interaction guidance.
+  * High-definition demonstration video (`deliverables/DQL_Streaming_Live_RAG.mp4`) showcasing live query streaming, latency telemetry, and balanced comparisons.
 * **`README`**:
   * Comprehensive developer onboarding documentation (`README.md`), configuration instructions (`.env.example`), architecture diagrams, API specs, and Vercel hosting guides.
 

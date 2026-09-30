@@ -54,9 +54,10 @@ hackathon-rag/
 │       ├── next.config.js              # Next.js config & backend API proxy rewrites
 │       └── vercel.json                 # Vercel deployment configuration
 ├── deliverables/                       # Official Hackathon Deliverables
-│   ├── system_explainability/          # Explainable system documentation
+│   ├── DQL_Streaming_Live_RAG.mp4      # High-definition video demo and product pitch (40MB)
 │   ├── Samsung_PRISM_Live_Streaming_RAG_Pitch.pptx # Compiled PowerPoint deck
-│   └── HACKATHON_PRESENTATION_GUIDE.md # Live presentation & speaking script
+│   ├── LangAI3.0_AI_Disclosure_DQL.docx # Official filled AI disclosure form
+│   └── system_explainability/          # Explainable system documentation
 └── README.md                           # Master README & Developer Quickstart
 ```
 
@@ -81,7 +82,7 @@ hackathon-rag/
 | **`Content/Manager -> Design`**| Samsung One UI Theme | `app/frontend/styles/globals.css` | Decent White palette, One UI pills, typography |
 | **`Content/Manager -> Data`**| Real-Time Telemetry | `app/backend/src/telemetry/collector.py` | `TelemetryCollector.record_stage()`, TTFT metrics |
 | **`Media -> ppt`** | Pitch Deck & Web Deck | `deliverables/Samsung_PRISM_Live_Streaming_RAG_Pitch.pptx`, `app/frontend/pages/presentation.tsx` | 12-slide structured pitch deck |
-| **`Media -> README`** | Documentation & Guide | `README.md`, `HACKATHON_PRESENTATION_GUIDE.md` | Minute-by-minute speaking script, setup steps |
+| **`Media -> README`** | Documentation & Guide | `README.md` | Architecture walkthrough, setup steps, benchmark analysis |
 
 ---
 
