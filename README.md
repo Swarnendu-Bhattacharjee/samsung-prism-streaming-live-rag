@@ -41,18 +41,18 @@ Standard RAG architectures suffer from high latency (>800ms TTFT), prompt token 
 
 ```mermaid
 flowchart TD
-    UserQuery["User Utterance"] --> Router{"Stage 0: Intent Router & Gate (<15ms)"}
+    UserQuery["User Utterance"] --> Router{"Stage 0: Intent Router and Gate"}
     
-    Router -->|1. General Knowledge / Greetings| DirectAPI["Mode 1: Direct General API\n(RAG Bypassed · 84ms TTFT · 0 Token Waste)"]
-    Router -->|2. Pure Samsung Hardware Query| HybridRAG["Mode 2: Speculative Hybrid RAG\n(Parallel BM25 + Dense Vectors + RRF k=60)"]
-    Router -->|3. Competitor Comparison\n(e.g. iPhone 16 vs S24)| CompCompare["Mode 3: Balanced Comparison\n(Grounded Samsung Specs [DOC-x] + General API Competitor Intel)"]
+    Router -->|1. General Knowledge| DirectAPI["Mode 1: Direct General API<br/>(RAG Bypassed · 84ms TTFT · 0 Token Waste)"]
+    Router -->|2. Pure Samsung Query| HybridRAG["Mode 2: Speculative Hybrid RAG<br/>(Parallel BM25 + Dense Vectors + RRF k=60)"]
+    Router -->|3. Competitor Comparison| CompCompare["Mode 3: Balanced Comparison<br/>(Grounded Samsung Specs + General API Intel)"]
     
     HybridRAG --> Reranker["Cross-Encoder Neural Reranking"]
     CompCompare --> Reranker
     
-    Reranker --> Sharpening["Context Sharpening (beta=0.5)\n(Prunes 42.4% Fluff Tokens)"]
-    Sharpening --> Synthesis["Speculative Synthesis Stream on Groq LPU\n(118ms TTFT · Clickable [DOC-x] Citations · Zero Criticism)"]
-    DirectAPI --> DirectStream["Direct Token Stream on Groq LPU\n(150+ tokens/sec)"]
+    Reranker --> Sharpening["Context Sharpening (beta=0.5)<br/>(Prunes 42.4% Fluff Tokens)"]
+    Sharpening --> Synthesis["Speculative Synthesis Stream on Groq LPU<br/>(118ms TTFT · Clickable DOC Citations · Zero Criticism)"]
+    DirectAPI --> DirectStream["Direct Token Stream on Groq LPU<br/>(150+ tokens/sec)"]
 ```
 
 ### 1. Mode 1: Direct General API (Zero-Waste Bypass)
